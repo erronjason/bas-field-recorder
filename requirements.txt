@@ -1,0 +1,4 @@
+openai-whisper
+whisperx
+pyannote.audio
+assemblyai

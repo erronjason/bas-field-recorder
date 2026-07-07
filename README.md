@@ -45,7 +45,7 @@ workspace/
 **4. Run**
 
 ```bash
-python whisper_transcription.py "my recording.m4a" --hf-token YOUR_HF_TOKEN
+python diarized_transcriber.py "my recording.m4a" --hf-token YOUR_HF_TOKEN
 ```
 
 Output files appear in `workspace/`:
@@ -60,7 +60,7 @@ workspace/
 ## Usage
 
 ```
-python whisper_transcription.py <file> [options]
+python diarized_transcriber.py <file> [options]
 ```
 
 ### Arguments
@@ -138,7 +138,7 @@ Speaker IDs (`SPEAKER_00`, `SPEAKER_01`, …) are normalized to `Speaker 1`, `Sp
 - You need results fast from a long recording on CPU
 
 ```bash
-python whisper_transcription.py "meeting.m4a" --backend cloud --api-key YOUR_KEY
+python diarized_transcriber.py "meeting.m4a" --backend cloud --api-key YOUR_KEY
 ```
 
 ---

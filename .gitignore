@@ -5,6 +5,9 @@ workspace/*
 # Claude Code
 .claude/
 
+# Secrets
+.env
+
 # Python
 __pycache__/
 *.py[cod]

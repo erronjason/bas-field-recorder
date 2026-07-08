@@ -2,3 +2,4 @@ openai-whisper
 whisperx
 pyannote.audio
 assemblyai
+python-dotenv

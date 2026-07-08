@@ -5,6 +5,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
+
 WORKSPACE = Path(__file__).parent / "workspace"
 
 

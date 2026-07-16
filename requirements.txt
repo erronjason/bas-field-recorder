@@ -3,3 +3,15 @@ whisperx
 pyannote.audio
 assemblyai
 python-dotenv
+
+# GUI recorder
+PySide6>=6.6
+pyaudiowpatch==0.2.12.8
+numpy
+scipy
+soundfile
+pyinstaller
+
+# Phase 2 — transcription server (backend venv) + GUI HTTP client
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0

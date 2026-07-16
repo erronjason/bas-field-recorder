@@ -116,11 +116,16 @@ class _InstallWorker(QThread):
             return
         self.step_done.emit(1)
 
-        pip = self._pip_exe(venv_path)
+        venv_python = self._python_exe(venv_path)
 
         # ── Step 2: Upgrade pip ──────────────────────────────────────────
+        # Use `python -m pip` rather than pip.exe — Windows locks the executable
+        # while it is running, preventing self-upgrade via pip.exe directly.
         self.step_started.emit(2, "Upgrading pip…")
-        ok, err = self._run([str(pip), "install", "--upgrade", "pip"], 2, indeterminate=True)
+        ok, err = self._run(
+            [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
+            2, indeterminate=True,
+        )
         if not ok:
             self.step_failed.emit(2, err)
             return
@@ -129,7 +134,7 @@ class _InstallWorker(QThread):
         # ── Step 3: Install PyTorch ──────────────────────────────────────
         self.step_started.emit(3, "Installing PyTorch (this may take several minutes)…")
         torch_pkgs = _TORCH_CUDA if self._use_cuda else _TORCH_CPU
-        ok, err = self._run([str(pip), "install"] + torch_pkgs, 3)
+        ok, err = self._run([str(venv_python), "-m", "pip", "install"] + torch_pkgs, 3)
         if not ok:
             self.step_failed.emit(3, err)
             return
@@ -137,7 +142,7 @@ class _InstallWorker(QThread):
 
         # ── Step 4: Install transcription stack ─────────────────────────
         self.step_started.emit(4, "Installing transcription stack…")
-        ok, err = self._run([str(pip), "install"] + _STACK, 4)
+        ok, err = self._run([str(venv_python), "-m", "pip", "install"] + _STACK, 4)
         if not ok:
             self.step_failed.emit(4, err)
             return
@@ -145,7 +150,6 @@ class _InstallWorker(QThread):
 
         # ── Step 5: Pre-download Whisper model ───────────────────────────
         self.step_started.emit(5, "Downloading Whisper model (medium, ~1.5 GB)…")
-        venv_python = self._python_exe(venv_path)
         script = (
             "import whisperx, torch; "
             "device = 'cuda' if torch.cuda.is_available() else 'cpu'; "
@@ -219,12 +223,6 @@ class _InstallWorker(QThread):
             return True, ""
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
-
-    @staticmethod
-    def _pip_exe(venv: Path) -> Path:
-        if sys.platform == "win32":
-            return venv / "Scripts" / "pip.exe"
-        return venv / "bin" / "pip"
 
     @staticmethod
     def _python_exe(venv: Path) -> Path:

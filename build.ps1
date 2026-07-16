@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build the Diarized Transcriber GUI into a self-contained Windows directory.
+    Build Field Recorder into a self-contained Windows directory.
 
 .DESCRIPTION
     Must be run from the project root (the directory that contains recorder_gui.spec).
-    Produces dist\DiarizedTranscriber\ — copy the whole folder to distribute.
+    Produces dist\FieldRecorder\ — copy the whole folder to distribute.
 
 .EXAMPLE
     .\build.ps1
@@ -37,7 +37,7 @@ if ($Clean) {
 }
 
 # ── Run PyInstaller ──────────────────────────────────────────────────────────
-Write-Host "Building DiarizedTranscriber ..."
+Write-Host "Building FieldRecorder ..."
 pyinstaller --noconfirm recorder_gui.spec
 
 if ($LASTEXITCODE -ne 0) {
@@ -45,6 +45,6 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$outDir = Join-Path $PSScriptRoot "dist\DiarizedTranscriber"
+$outDir = Join-Path $PSScriptRoot "dist\FieldRecorder"
 Write-Host ""
 Write-Host "Build complete: $outDir"

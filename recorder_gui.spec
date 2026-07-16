@@ -20,6 +20,8 @@ a = Analysis(
         # BAS wordmark SVGs rendered in the setup wizard header.
         ("docs/BAS-landscape.svg", "docs"),
         ("docs/BAS-stacked.svg", "docs"),
+        # Global visual system stylesheet.
+        ("field_recorder.qss", "."),
     ],
     hiddenimports=[
         # PyAudioWPatch ships native DLLs; ensure its package is collected.
@@ -33,6 +35,9 @@ a = Analysis(
         "_soundfile_data",
         # SVG rendering for setup wizard header.
         "PySide6.QtSvg",
+        # Audio playback in the Records Viewer.
+        "PySide6.QtMultimedia",
+        "PySide6.QtMultimediaWidgets",
     ],
     hookspath=[],
     hooksconfig={},
@@ -51,7 +56,6 @@ a = Analysis(
         "PySide6.QtDesigner",
         "PySide6.QtHelp",
         "PySide6.QtLocation",
-        "PySide6.QtMultimediaWidgets",
         "PySide6.QtNfc",
         "PySide6.QtPdf",
         "PySide6.QtPdfWidgets",

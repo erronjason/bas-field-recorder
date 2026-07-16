@@ -1,7 +1,8 @@
 """Shared icon generation for Field Recorder.
 
-All QIcon objects derive from the BAS three-line mark. The bottom bar color
-is the only thing that changes between identity use and tray state signals.
+All QIcon objects derive from the BAS three-line mark.
+Identity use (window/taskbar): warm orange tones via bas_icon().
+Tray state use: all bars change color together via tray_state_icon().
 """
 
 import sys
@@ -10,26 +11,39 @@ from pathlib import Path
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 
-def bas_icon(size: int = 22, bottom_color: str = "#F9EDD9") -> QIcon:
-    """BAS three-line mark as a QIcon.
-
-    bottom_color: cream (#F9EDD9) for identity/window use;
-                  state-specific accent for tray state icons.
-    """
+def _draw_mark(size: int, top: str, mid: str, bot: str) -> QIcon:
+    """Render the BAS three-bar mark at the given size with explicit bar colors."""
     px = QPixmap(size, size)
     px.fill(QColor("transparent"))
     p = QPainter(px)
-
-    bar_h = max(3, size * 4 // 22)
-    gap = max(2, size * 3 // 22)
+    bar_h = max(2, size * 2 // 22)
+    gap   = max(3, size * 3 // 22)
     mid_w = int(size * 0.75)
-
-    p.fillRect(0, 0, size, bar_h, QColor("#BA581C"))
-    p.fillRect(0, bar_h + gap, mid_w, bar_h, QColor("#C9740E"))
-    p.fillRect(0, (bar_h + gap) * 2, size, bar_h, QColor(bottom_color))
+    y0 = (size - 3 * bar_h - 2 * gap) // 2
+    p.fillRect(0, y0,                  size,  bar_h, QColor(top))
+    p.fillRect(0, y0 + bar_h + gap,   mid_w, bar_h, QColor(mid))
+    p.fillRect(0, y0 + 2*(bar_h+gap), size,  bar_h, QColor(bot))
     p.end()
-
     return QIcon(px)
+
+
+def bas_icon(size: int = 32) -> QIcon:
+    """BAS identity mark — warm orange tones for window and taskbar."""
+    return _draw_mark(size, "#BA581C", "#C9740E", "#F9EDD9")
+
+
+_TRAY_COLORS: dict[str, tuple[str, str, str]] = {
+    "idle":      ("#A39B90", "#A39B90", "#A39B90"),
+    "recording": ("#E2761B", "#E2761B", "#E2761B"),
+    "paused":    ("#6E665C", "#E2761B", "#6E665C"),
+    "saving":    ("#A39B90", "#A39B90", "#A39B90"),
+}
+
+
+def tray_state_icon(state: str, size: int = 22) -> QIcon:
+    """BAS mark colored by tray capture state (visual §6.1)."""
+    t, m, b = _TRAY_COLORS.get(state, _TRAY_COLORS["idle"])
+    return _draw_mark(size, t, m, b)
 
 
 def bas_svg_path(name: str = "BAS-landscape") -> Path:

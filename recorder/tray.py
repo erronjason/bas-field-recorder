@@ -13,7 +13,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import user_data
-from .icons import bas_icon as _bas_icon
+from .icons import tray_state_icon as _state_icon
 from .audio import AudioBackend, MixdownWorker, RecorderThread, get_audio_backend
 from .hotkeys import HotkeyManager
 from .naming_dialog import NamingDialog
@@ -30,19 +30,12 @@ class State(enum.Enum):
     SAVING = "saving"
 
 
-_STATE_BOTTOM_COLORS = {
-    State.IDLE: "#D4C4B0",
-    State.RECORDING: "#C4392D",
-    State.PAUSED: "#C9740E",
-    State.SAVING: "#4A7FA3",
-}
-
 _icon_cache: dict[State, QIcon] = {}
 
 
 def _icon(state: State, size: int = 22) -> QIcon:
     if state not in _icon_cache:
-        _icon_cache[state] = _bas_icon(size, _STATE_BOTTOM_COLORS[state])
+        _icon_cache[state] = _state_icon(state.value, size)
     return _icon_cache[state]
 
 
@@ -128,7 +121,7 @@ class SystemTrayApp(QSystemTrayIcon):
         act_workspace.triggered.connect(self._open_records)
         menu.addAction(act_workspace)
 
-        act_data = QAction("Open data folder", menu)
+        act_data = QAction("Open data directory", menu)
         act_data.triggered.connect(self._open_data_dir)
         menu.addAction(act_data)
 

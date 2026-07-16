@@ -12,11 +12,15 @@ from recorder.settings import Settings
 from recorder.setup_wizard import SetupWizard, backend_ready
 from recorder.transcription_queue import TranscriptionQueue
 from recorder.tray import SystemTrayApp
+from recorder.typography import bas_palette, load_qss
 
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Field Recorder")
+    app.setStyle("Fusion")
+    app.setPalette(bas_palette())
+    app.setStyleSheet(load_qss())
     app.setWindowIcon(bas_icon(32))
     app.setQuitOnLastWindowClosed(False)
 

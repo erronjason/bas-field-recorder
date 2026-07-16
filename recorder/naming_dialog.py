@@ -42,13 +42,13 @@ class NamingDialog(QDialog):
         layout.addWidget(self._name_edit)
 
         hint = QLabel("Leave blank to use the date and time.")
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setProperty("role", "metadata")
         layout.addWidget(hint)
 
         dur_text = self._duration_text(wav_path)
         if dur_text:
             dur_label = QLabel(dur_text)
-            dur_label.setStyleSheet("color: gray; font-size: 11px;")
+            dur_label.setProperty("role", "metadata")
             layout.addWidget(dur_label)
 
         buttons = QDialogButtonBox()

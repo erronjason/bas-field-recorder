@@ -708,3 +708,27 @@ QStatusBar {
 QStatusBar::item {
     border: none;
 }
+
+/* ---------- Setup wizard step labels -----------------------
+   _StepRow labels in setup_wizard.py. State driven by
+   setProperty("state", ...) + unpolish/polish.
+   Default (pending): muted. Active: accent. Done: muted.
+   Error: error. No green at any state.
+   ----------------------------------------------------------- */
+
+QLabel[role="step-label"] {
+    color: #A39B90;
+    font-size: 12px;
+}
+
+QLabel[role="step-label"][state="active"] {
+    color: #E2761B;
+}
+
+QLabel[role="step-label"][state="done"] {
+    color: #A39B90;
+}
+
+QLabel[role="step-label"][state="error"] {
+    color: #C4432B;
+}

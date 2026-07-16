@@ -3,3 +3,10 @@ whisperx
 pyannote.audio
 assemblyai
 python-dotenv
+
+# GUI recorder
+PySide6>=6.6
+pyaudiowpatch==0.2.12.8
+numpy
+scipy
+pyinstaller

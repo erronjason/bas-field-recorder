@@ -1,106 +1,227 @@
-# Diarized Transcriber
+# Bureau of Applied Science — Field Recorder
 
-Transcribes audio files and automatically detects who is speaking when. Outputs both a structured JSON file and a human-readable text transcript, each segment labeled by speaker.
+Captures calls and meetings as structured records.
 
-Built on [whisperX](https://github.com/m-bain/whisperX) (local) and [AssemblyAI](https://www.assemblyai.com/) (cloud).
-
----
-
-## Features
-
-- **Real speaker diarization** — audio-feature clustering, not round-robin guessing
-- **Two backends** — local (free, private, GPU-accelerated) or cloud (faster for multi-speaker)
-- **Auto speaker detection** — no need to know the speaker count in advance
-- **Dual output** — JSON for downstream processing, plain text for reading
-- **GPU acceleration** — automatically uses NVIDIA CUDA if available
+**Model 1** — Windows tray application with on-device and off-device transcription.
 
 ---
 
-## Quick Start
+## What it produces
 
-**1. Install dependencies**
+A **record**: a speaker-attributed, timestamped, annotated account of spoken work, stored as a FLAC audio file and a JSON sidecar. The JSON is machine-addressable — stable identity, typed fields, no derivation required from filenames.
+
+See [Record Format](#record-format) for the full schema.
+
+---
+
+## Components
+
+| Component | Description |
+|---|---|
+| `recorder_gui.py` | Windows tray application — capture, naming, notes, transcription queue |
+| `diarized_transcriber_server.py` | FastAPI transcription service — managed by the GUI, also launchable standalone |
+| `diarized_transcriber.py` | CLI transcription script — direct use without the GUI |
+
+The GUI manages the transcription service as a child process. The service runs in an isolated virtual environment (installed on first launch).
+
+---
+
+## Data layout
+
+```
+%APPDATA%\BureauOfAppliedScience\
+├── records\                    # every record produced by any Bureau instrument
+├── instruments\
+│   └── field-recorder\
+│       ├── backend\            # virtual environment and service
+│       ├── models\             # Whisper and pyannote weights
+│       └── settings.json       # instrument settings
+├── tmp\                        # in-progress captures (crash recovery)
+├── settings.json               # bureau-level settings
+└── deletions.log
+```
+
+---
+
+## Installation
+
+**Requirements:** Python 3.9 or later, Windows 10/11.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> First install pulls PyTorch + CUDA (~2.5 GB). For GPU acceleration, install the CUDA build of PyTorch:
-> ```bash
-> pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-> ```
-
-**2. Get a HuggingFace token** (local backend only — free)
-
-- Create an account at [huggingface.co](https://huggingface.co)
-- Go to **Settings → Access Tokens → New token** (read scope is sufficient)
-- Accept the model terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
-
-**3. Drop your audio file into `workspace/`**
-
-```
-workspace/
-  my recording.m4a   ← put your file here
-```
-
-**4. Run**
-
-```bash
-python diarized_transcriber.py "my recording.m4a" --hf-token YOUR_HF_TOKEN
-```
-
-Output files appear in `workspace/`:
-```
-workspace/
-  my recording.json
-  my recording.txt
-```
+The transcription stack (PyTorch, whisperX, pyannote) is installed separately into a dedicated virtual environment by the setup wizard on first launch, or via **Settings → Service → Reinstall transcription service**. Approximately 3–5 GB.
 
 ---
 
-## Usage
+## Running the GUI
 
+From source:
+
+```bash
+python recorder_gui.py
 ```
-python diarized_transcriber.py <file> [options]
+
+The application appears as a tray icon. On first run, the setup wizard installs the on-device transcription engine.
+
+**Build a distributable (Windows):**
+
+```powershell
+.\build.ps1
 ```
 
-### Arguments
+Output: `dist\FieldRecorder\FieldRecorder.exe`
 
-| Argument | Description |
+---
+
+## GUI reference
+
+### Tray icon states
+
+The icon uses the BAS three-line mark. The bottom bar signals state:
+
+| State | Bottom bar |
 |---|---|
-| `file` | Audio filename in `workspace/`, or a full path |
+| Idle | Warm light — no active capture |
+| Capturing | Warm red — audio being written to disk |
+| Paused | Mid orange — capture suspended |
+| Saving | Steel blue — mixdown and transcription queued |
 
-### Options
+### Menu
+
+| Item | Action |
+|---|---|
+| Start capture | Begin recording mic and system audio |
+| Pause / Resume | Suspend or continue the current capture |
+| Stop capture | Stop and open naming dialog |
+| Session notes | Floating notes panel (always on top) |
+| Pause / Resume transcription queue | Hold or release queued jobs |
+| Open records | Opens `records\` in Explorer |
+| Open data folder | Opens `BureauOfAppliedScience\` in Explorer |
+| Settings | Audio devices, transcription, hotkeys, service, data |
+| Quit | Exits; warns if capture is in progress |
+
+### Default hotkeys
+
+| Hotkey | Action |
+|---|---|
+| `Ctrl+Shift+R` | Start / Stop capture |
+| `Ctrl+Shift+P` | Pause / Resume capture |
+| `Ctrl+Shift+N` | Open notes panel |
+
+Configurable in **Settings → Hotkeys**.
+
+---
+
+## Transcription backends
+
+### On-device (default)
+
+whisperX + pyannote.audio. Audio does not leave the machine. Requires the first-run installation (~3–5 GB). GPU acceleration via NVIDIA CUDA is automatic when available.
+
+### Off-device — AssemblyAI
+
+Audio is sent to AssemblyAI's servers over an encrypted connection. Consent is requested once on first use. Set the API key in **Settings → Transcription**.
+
+**Comparison:**
+
+| | On-device | Off-device |
+|---|---|---|
+| Cost | Free | ~$0.37–$0.65 / hr of audio |
+| Privacy | Audio stays on this machine | Audio transmitted to AssemblyAI |
+| Speed — GPU | ~10–20× real-time | ~10–15× real-time |
+| Speed — CPU | ~0.3–0.5× real-time | ~10–15× real-time |
+| 2-speaker accuracy | ~85–95% | ~85–90% |
+| 5+ speaker accuracy | ~70–80% | ~85–90% |
+| Requires | HuggingFace token + model terms | AssemblyAI API key |
+
+Off-device is appropriate when no NVIDIA GPU is available, when transcribing a long session on CPU, or when 5+ speaker accuracy is the priority.
+
+---
+
+## Direct CLI use
+
+The transcription script can be called without the GUI:
+
+```bash
+python diarized_transcriber.py <audio_file> [options]
+```
+
+**Options:**
 
 | Option | Default | Description |
 |---|---|---|
 | `--backend` | `local` | `local` (whisperX + pyannote) or `cloud` (AssemblyAI) |
-| `--speakers` | auto | Force a specific speaker count if auto-detection is wrong |
-| `--model` | `medium` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
-| `--language` | `en` | Language code. Pass `auto` to auto-detect |
-| `--output` | input filename | Output base name (no extension) |
-| `--hf-token` | `$HF_TOKEN` | HuggingFace token (local backend) |
-| `--api-key` | `$ASSEMBLYAI_API_KEY` | AssemblyAI API key (cloud backend) |
+| `--speakers` | auto | Force a specific speaker count |
+| `--model` | `medium` | Whisper model: `tiny` `base` `small` `medium` `large` |
+| `--language` | `en` | Language code; `auto` to detect |
+| `--output` | input stem | Output base name — writes `.json` and `.txt` |
+| `--hf-token` | `$HF_TOKEN` | HuggingFace token (on-device backend) |
+| `--api-key` | `$ASSEMBLYAI_API_KEY` | AssemblyAI API key (off-device backend) |
 
-### Environment variables
-
-Set these to avoid passing tokens on every run:
+**Environment variables:**
 
 ```bash
-export HF_TOKEN=hf_...
-export ASSEMBLYAI_API_KEY=...
+HF_TOKEN=hf_...
+ASSEMBLYAI_API_KEY=...
 ```
+
+**HuggingFace token (on-device backend):**
+
+1. Create an account at [huggingface.co](https://huggingface.co).
+2. Settings → Access Tokens → New token (read scope).
+3. Accept model terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1).
 
 ---
 
-## Output formats
+## Whisper model reference (on-device)
 
-### JSON (`workspace/<name>.json`)
+| Model | VRAM | Notes |
+|---|---|---|
+| `tiny` | ~1 GB | Lowest accuracy |
+| `base` | ~1 GB | |
+| `small` | ~2 GB | |
+| `medium` | ~5 GB | Default |
+| `large` | ~10 GB | Highest accuracy |
+
+Use `--model small` if the GPU runs out of memory on `medium`.
+
+---
+
+## Supported audio formats
+
+`wav`, `flac`, `m4a`, `mp3`, `mp4`, `ogg`, `webm`
+
+---
+
+## Record Format
+
+**Revision 1.** Every record produced by Field Recorder conforms to this schema.
 
 ```json
 {
+  "record_id": "3fa8c1d2-4e7b-4a9c-b1f0-8d2e6c3a5f91",
+  "format_revision": 1,
+  "display_name": "Site call with Teddy",
+  "created_at": "2026-07-16T14:23:00+00:00",
+  "audio_file": "recording_20260716_142300.flac",
+  "source": {
+    "application": "Field Recorder",
+    "meeting_title": null,
+    "call_direction": null,
+    "counterparty": null
+  },
+  "duration_seconds": 312.4,
+  "participants": [],
   "backend": "local",
-  "audio_file": "workspace/my recording.m4a",
   "speakers_detected": 2,
+  "speaker_names": {
+    "SPEAKER_00": "Teddy",
+    "SPEAKER_01": ""
+  },
+  "notes": "",
+  "retain": false,
   "segments": [
     { "speaker": "SPEAKER_00", "start": 0.83, "end": 2.04, "text": "Good, good." },
     { "speaker": "SPEAKER_01", "start": 2.23, "end": 8.38, "text": "Back from our road trip..." }
@@ -108,64 +229,21 @@ export ASSEMBLYAI_API_KEY=...
 }
 ```
 
-### Text (`workspace/<name>.txt`)
+**Field notes:**
 
-```
-[Speaker 1] (0.83s - 2.04s): Good, good.
-[Speaker 2] (2.23s - 8.38s): Back from our road trip to the east...
-```
+- `record_id` — stable UUID. Not derived from filename or timestamp.
+- `format_revision` — increments only on breaking schema changes.
+- `source` — best-effort metadata about the capture context. Nulls are honest.
+- `speaker_names` — maps diarization labels (`SPEAKER_00`, …) to real identities. Populated by the operator after review.
+- `participants` — who was in the session. Distinct from `speaker_names`, which is the label map.
+- `retain` — when `true`, the record is excluded from any retention policy.
 
-Speaker IDs (`SPEAKER_00`, `SPEAKER_01`, …) are normalized to `Speaker 1`, `Speaker 2`, … in the text output. The JSON retains the raw IDs for programmatic use.
-
----
-
-## Backend comparison
-
-| | Local | Cloud |
-|---|---|---|
-| **Cost** | Free | ~$0.37–$0.65/hr of audio |
-| **Privacy** | Audio stays on your machine | Audio uploaded to AssemblyAI |
-| **Speed (GPU)** | ~10–20x real-time | ~10–15x real-time |
-| **Speed (CPU)** | ~0.3–0.5x real-time (slow) | ~10–15x real-time |
-| **2-speaker accuracy** | ~85–95% | ~85–90% |
-| **5+ speaker accuracy** | ~70–80% | ~85–90% |
-| **Setup** | HuggingFace token + model terms | AssemblyAI API key |
-
-### When to use cloud
-
-- No NVIDIA GPU available
-- 5+ speaker meetings where accuracy matters most
-- You need results fast from a long recording on CPU
-
-```bash
-python diarized_transcriber.py "meeting.m4a" --backend cloud --api-key YOUR_KEY
-```
+The plain-text sidecar (`.txt`) is derived from `segments`: `[Speaker N] (Xs – Ys): text`, with diarization labels normalized to `Speaker 1`, `Speaker 2`, etc.
 
 ---
 
-## Model size guide (local backend)
+## Accuracy
 
-| Model | VRAM | Speed | Accuracy |
-|---|---|---|---|
-| `tiny` | ~1 GB | Fastest | Lower |
-| `base` | ~1 GB | Fast | Moderate |
-| `small` | ~2 GB | Fast | Good |
-| `medium` | ~5 GB | Moderate | Better |
-| `large` | ~10 GB | Slow | Best |
+Speaker labels are detected from audio features. The instrument has no way to know who a speaker is by name; `speaker_names` is populated by the operator.
 
-Use `--model small` if you hit GPU out-of-memory errors with `medium`.
-
----
-
-## Supported audio formats
-
-`wav`, `m4a`, `mp3`, `mp4`, `ogg`, `flac`, `webm`
-
----
-
-## Notes on accuracy
-
-- Speaker labels (`Speaker 1`, `Speaker 2`, …) are detected from audio features — the tool has no way to know *who* they are by name. Identify them manually after reviewing the transcript.
-- Short back-channel responses ("yeah", "right", "uh-huh") are the most likely to be mis-attributed.
-- Accuracy improves when speakers have distinct voices and long uninterrupted turns.
-- For recordings with significant silence at the start, pass `--language en` (already the default) to prevent language mis-detection.
+Short back-channel responses ("yeah", "right", "uh-huh") are the most common source of mis-attribution. Accuracy improves when speakers have distinct voices and uninterrupted turns of reasonable length.

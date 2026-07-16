@@ -1,7 +1,6 @@
 import json
 import sys
 import threading
-import wave
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -104,12 +103,9 @@ def do_mixdown(tmp_path: Path, wav_path: Path) -> None:
 
     mixed_i16 = (mixed * 32767.0).astype(np.int16)
 
+    import soundfile as sf  # imported here to avoid loading at startup
     wav_path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(wav_path), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(target)
-        wf.writeframes(mixed_i16.tobytes())
+    sf.write(str(wav_path), mixed_i16, samplerate=target, subtype="PCM_16")
 
 
 # ---------------------------------------------------------------------------

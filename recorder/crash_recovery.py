@@ -54,7 +54,7 @@ def _recover(session_dir: Path) -> None:
     # Import here to avoid circular imports at module load
     from .naming_dialog import NamingDialog
 
-    wav_name = session_dir.name + ".wav"
+    wav_name = session_dir.name + ".flac"
     wav_path = user_data.workspace() / wav_name
 
     notes_path = session_dir / "notes.txt"

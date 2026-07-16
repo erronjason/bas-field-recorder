@@ -221,7 +221,7 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(Path, str)
     def _on_recording_stopped(self, tmp_path: Path, notes: str) -> None:
-        wav_path = user_data.workspace() / (tmp_path.name + ".wav")
+        wav_path = user_data.workspace() / (tmp_path.name + ".flac")
 
         self._naming_done = False
         self._mixdown_done = False

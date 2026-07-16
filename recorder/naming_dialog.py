@@ -1,4 +1,3 @@
-import wave
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -95,9 +94,10 @@ class NamingDialog(QDialog):
         if not wav_path.exists():
             return "Recording is being saved…"
         try:
-            with wave.open(str(wav_path), "r") as wf:
-                secs = wf.getnframes() / wf.getframerate()
-            m, s = divmod(int(secs), 60)
+            import soundfile as sf
+            info = sf.info(str(wav_path))
+            secs = int(info.duration)
+            m, s = divmod(secs, 60)
             h, m2 = divmod(m, 60)
             if h:
                 return f"Duration: {h}:{m2:02d}:{s:02d}"

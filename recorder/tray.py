@@ -1,3 +1,7 @@
+"""SystemTrayApp — state machine + Phase 2 wiring."""
+
+from __future__ import annotations
+
 import enum
 import shutil
 import sys
@@ -10,9 +14,12 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import user_data
 from .audio import AudioBackend, MixdownWorker, RecorderThread, get_audio_backend
+from .hotkeys import HotkeyManager
 from .naming_dialog import NamingDialog
 from .notes_window import NotesWindow
+from .server_manager import ServerManager
 from .settings import Settings, SettingsWindow
+from .transcription_queue import TranscriptionQueue
 
 
 class State(enum.Enum):
@@ -47,10 +54,15 @@ def _icon(state: State, size: int = 22) -> QIcon:
 
 
 class SystemTrayApp(QSystemTrayIcon):
-    """System-tray controller.  Owns the state machine, recorder thread,
-    mixdown worker, and notes window."""
+    """System-tray controller — owns the full Phase 1 + 2 state machine."""
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        server: ServerManager,
+        queue: TranscriptionQueue,
+        hotkeys: HotkeyManager,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
 
         self._state = State.IDLE
@@ -63,12 +75,27 @@ class SystemTrayApp(QSystemTrayIcon):
         self._mixdown_done = False
 
         self._notes_window = NotesWindow()
+        self._server = server
+        self._queue = queue
+        self._hotkeys = hotkeys
+
+        # Hotkey signals → recording actions
+        self._hotkeys.start_stop_triggered.connect(self._hotkey_start_stop)
+        self._hotkeys.pause_resume_triggered.connect(self._hotkey_pause_resume)
+        self._hotkeys.notes_triggered.connect(self._show_notes)
+
+        # Queue signals → tray tooltip
+        self._queue.queue_updated.connect(self._refresh_tooltip)
+        self._queue.job_done.connect(self._on_job_done)
+        self._queue.job_error.connect(self._on_job_error)
+
+        # Server status → tray tooltip
+        self._server.status_changed.connect(self._on_server_status)
 
         self._build_menu()
         self._refresh()
 
         self.activated.connect(self._on_activated)
-        self.setToolTip("Diarized Transcriber")
         self.show()
 
     # ------------------------------------------------------------------
@@ -98,6 +125,12 @@ class SystemTrayApp(QSystemTrayIcon):
 
         menu.addSeparator()
 
+        self._act_pause_queue = QAction("Pause Transcription Queue", menu)
+        self._act_pause_queue.triggered.connect(self._toggle_queue_pause)
+        menu.addAction(self._act_pause_queue)
+
+        menu.addSeparator()
+
         act_workspace = QAction("Open Recordings Folder", menu)
         act_workspace.triggered.connect(self._open_workspace)
         menu.addAction(act_workspace)
@@ -121,7 +154,6 @@ class SystemTrayApp(QSystemTrayIcon):
         self.setContextMenu(menu)
 
     def _refresh(self) -> None:
-        """Sync all menu item visibility/labels and the tray icon to current state."""
         is_idle = self._state == State.IDLE
         is_live = self._state in (State.RECORDING, State.PAUSED)
 
@@ -129,15 +161,34 @@ class SystemTrayApp(QSystemTrayIcon):
         self._act_pause.setVisible(is_live)
         self._act_stop.setVisible(is_live)
         self._act_notes.setVisible(is_live)
-
-        self._act_pause.setText(
-            "Resume" if self._state == State.PAUSED else "Pause"
-        )
         self._act_settings.setEnabled(is_idle)
+        self._act_pause.setText("Resume" if self._state == State.PAUSED else "Pause")
+
+        # Queue pause toggle
+        q_paused = self._queue.is_paused()
+        self._act_pause_queue.setText(
+            "Resume Transcription Queue" if q_paused else "Pause Transcription Queue"
+        )
+        self._act_pause_queue.setEnabled(not is_live)
+
         self.setIcon(_icon(self._state))
+        self._refresh_tooltip()
+
+    def _refresh_tooltip(self) -> None:
+        parts = ["Diarized Transcriber"]
+
+        active = self._queue.active_count()
+        if active:
+            paused = " (paused)" if self._queue.is_paused() else ""
+            parts.append(f"Transcribing {active} recording{'s' if active > 1 else ''}{paused}")
+
+        if not self._server.is_ready():
+            parts.append("Backend: not running")
+
+        self.setToolTip(" — ".join(parts))
 
     # ------------------------------------------------------------------
-    # User actions
+    # Recording actions
     # ------------------------------------------------------------------
 
     def _start_recording(self) -> None:
@@ -146,7 +197,6 @@ class SystemTrayApp(QSystemTrayIcon):
 
         mic_info = self._resolve_mic()
         lb_info = self._resolve_loopback()
-
         if mic_info is None:
             self._alert("No microphone found. Open Settings to configure an input device.")
             return
@@ -180,6 +230,13 @@ class SystemTrayApp(QSystemTrayIcon):
         self._notes_window.show()
         self._notes_window.raise_()
 
+    def _toggle_queue_pause(self) -> None:
+        if self._queue.is_paused():
+            self._queue.resume_queue()
+        else:
+            self._queue.pause_queue()
+        self._refresh()
+
     def _open_workspace(self) -> None:
         _reveal_path(user_data.workspace())
 
@@ -189,7 +246,15 @@ class SystemTrayApp(QSystemTrayIcon):
     def _open_settings(self) -> None:
         if self._backend is None:
             self._backend = get_audio_backend()
-        dlg = SettingsWindow(self._settings, self._backend)
+
+        dlg = SettingsWindow(
+            self._settings,
+            self._backend,
+            server=self._server,
+            hotkey_conflicts=self._hotkeys.conflicts(),
+        )
+        dlg.hotkeys_changed.connect(self._reregister_hotkeys)
+        dlg.reinstall_requested.connect(self._run_setup_wizard)
         dlg.exec()
 
     def _quit(self) -> None:
@@ -203,10 +268,12 @@ class SystemTrayApp(QSystemTrayIcon):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+        self._server.stop()
+        self._hotkeys.unregister()
         QApplication.quit()
 
     # ------------------------------------------------------------------
-    # Slots — recorder lifecycle
+    # Recorder slots
     # ------------------------------------------------------------------
 
     @Slot()
@@ -221,25 +288,23 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(Path, str)
     def _on_recording_stopped(self, tmp_path: Path, notes: str) -> None:
-        wav_path = user_data.workspace() / (tmp_path.name + ".flac")
+        audio_path = user_data.workspace() / (tmp_path.name + ".flac")
 
         self._naming_done = False
         self._mixdown_done = False
         self._pending_tmp_path = tmp_path
 
-        self._mixdown_worker = MixdownWorker(tmp_path, wav_path, parent=self)
+        self._mixdown_worker = MixdownWorker(tmp_path, audio_path, parent=self)
         self._mixdown_worker.mixdown_complete.connect(self._on_mixdown_complete)
         self._mixdown_worker.mixdown_error.connect(self._on_mixdown_error)
         self._mixdown_worker.start()
 
-        # NamingDialog.exec() runs a nested event loop — MixdownWorker
-        # signals are delivered and processed while the dialog is open.
-        dlg = NamingDialog(wav_path, notes)
+        dlg = NamingDialog(audio_path, notes)
         dlg.exec()
         self._naming_done = True
 
         if self._mixdown_done:
-            self._finish_saving()
+            self._finish_saving(audio_path)
 
     @Slot(str)
     def _on_recorder_error(self, error: str) -> None:
@@ -248,15 +313,15 @@ class SystemTrayApp(QSystemTrayIcon):
         QMessageBox.critical(None, "Recording error", error)
 
     # ------------------------------------------------------------------
-    # Slots — mixdown lifecycle
+    # Mixdown slots
     # ------------------------------------------------------------------
 
     @Slot(Path)
-    def _on_mixdown_complete(self, wav_path: Path) -> None:  # noqa: ARG002
+    def _on_mixdown_complete(self, audio_path: Path) -> None:
         self._cleanup_tmp()
         self._mixdown_done = True
         if self._naming_done:
-            self._finish_saving()
+            self._finish_saving(audio_path)
 
     @Slot(str)
     def _on_mixdown_error(self, error: str) -> None:
@@ -264,18 +329,104 @@ class SystemTrayApp(QSystemTrayIcon):
         self._mixdown_done = True
         QMessageBox.critical(None, "Save failed", f"Could not save recording:\n{error}")
         if self._naming_done:
-            self._finish_saving()
+            self._finish_saving(None)
 
     def _cleanup_tmp(self) -> None:
         if self._pending_tmp_path:
             shutil.rmtree(self._pending_tmp_path, ignore_errors=True)
             self._pending_tmp_path = None
 
-    def _finish_saving(self) -> None:
+    def _finish_saving(self, audio_path: Optional[Path]) -> None:
         self._mixdown_worker = None
         self._recorder = None
         self._state = State.IDLE
         self._refresh()
+
+        # Auto-transcribe if enabled, server ready, and we have a valid file
+        if (
+            audio_path
+            and audio_path.exists()
+            and self._settings.auto_transcribe
+            and self._server.is_ready()
+        ):
+            self._maybe_consent_then_enqueue(audio_path)
+
+    def _maybe_consent_then_enqueue(self, audio_path: Path) -> None:
+        if self._settings.transcription_backend == "cloud" and not self._settings.cloud_consent_given:
+            from .consent_dialog import CloudConsentDialog
+            dlg = CloudConsentDialog()
+            if dlg.exec() != CloudConsentDialog.DialogCode.Accepted:
+                self._settings.transcription_backend = "local"
+                self._settings.save()
+                return
+            self._settings.cloud_consent_given = True
+            self._settings.save()
+
+        self._queue.enqueue(audio_path, self._settings)
+
+    # ------------------------------------------------------------------
+    # Queue slots
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _on_job_done(self, job_id: str) -> None:
+        self.showMessage("Transcription complete", "Recording transcribed.", msecs=3000)
+        self._refresh_tooltip()
+
+    @Slot(str, str)
+    def _on_job_error(self, job_id: str, error: str) -> None:
+        self.showMessage("Transcription failed", error[:120], msecs=4000)
+        self._refresh_tooltip()
+
+    # ------------------------------------------------------------------
+    # Server slot
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _on_server_status(self, status: str) -> None:
+        self._refresh_tooltip()
+
+    # ------------------------------------------------------------------
+    # Hotkeys
+    # ------------------------------------------------------------------
+
+    def _reregister_hotkeys(self) -> None:
+        self._settings = Settings.load()
+        conflicts = self._hotkeys.register(
+            self._settings.hotkey_start_stop,
+            self._settings.hotkey_pause_resume,
+            self._settings.hotkey_notes,
+        )
+        if conflicts:
+            names = {"start_stop": "Start/Stop", "pause_resume": "Pause/Resume", "notes": "Notes"}
+            msg = "\n".join(f"  {names[a]}: {s}" for a, s in conflicts.items())
+            self.showMessage(
+                "Hotkey conflict",
+                f"Could not register:\n{msg}\nChange them in Settings → Hotkeys.",
+                msecs=5000,
+            )
+
+    @Slot()
+    def _hotkey_start_stop(self) -> None:
+        if self._state == State.IDLE:
+            self._start_recording()
+        elif self._state in (State.RECORDING, State.PAUSED):
+            self._stop_recording()
+
+    @Slot()
+    def _hotkey_pause_resume(self) -> None:
+        if self._state in (State.RECORDING, State.PAUSED):
+            self._toggle_pause()
+
+    # ------------------------------------------------------------------
+    # Setup wizard (from Settings → Reinstall Backend)
+    # ------------------------------------------------------------------
+
+    def _run_setup_wizard(self) -> None:
+        from .setup_wizard import SetupWizard
+        dlg = SetupWizard(parent=None)
+        if dlg.exec() == SetupWizard.DialogCode.Accepted:
+            self._server.start()
 
     # ------------------------------------------------------------------
     # Tray activation
@@ -283,7 +434,6 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(QSystemTrayIcon.ActivationReason)
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        # Double-click starts/stops recording as a quick shortcut
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             if self._state == State.IDLE:
                 self._start_recording()
@@ -319,12 +469,11 @@ class SystemTrayApp(QSystemTrayIcon):
 # ---------------------------------------------------------------------------
 
 def _reveal_path(path: Path) -> None:
+    import os
     import subprocess
-    s = str(path)
     if sys.platform == "win32":
-        import os
-        os.startfile(s)
+        os.startfile(str(path))
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", s])
+        subprocess.Popen(["open", str(path)])
     else:
-        subprocess.Popen(["xdg-open", s])
+        subprocess.Popen(["xdg-open", str(path)])

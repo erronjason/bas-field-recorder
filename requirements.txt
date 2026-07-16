@@ -11,3 +11,7 @@ numpy
 scipy
 soundfile
 pyinstaller
+
+# Phase 2 — transcription server (backend venv) + GUI HTTP client
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0

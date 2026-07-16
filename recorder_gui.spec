@@ -12,7 +12,12 @@ a = Analysis(
     ["recorder_gui.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        # Bundle the server script so server_manager can locate it via
+        # _app_resource_path() whether frozen or running from source.
+        ("diarized_transcriber_server.py", "."),
+        ("diarized_transcriber.py", "."),
+    ],
     hiddenimports=[
         # PyAudioWPatch ships native DLLs; ensure its package is collected.
         "pyaudiowpatch",
@@ -20,6 +25,9 @@ a = Analysis(
         "scipy.signal",
         "scipy.signal._upfirdn",
         "scipy.signal._upfirdn_apply",
+        # soundfile uses cffi; ensure the extension is collected.
+        "soundfile",
+        "_soundfile_data",
     ],
     hookspath=[],
     hooksconfig={},

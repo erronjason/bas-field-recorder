@@ -1,8 +1,12 @@
 """First-run setup wizard — installs the backend transcription stack.
 
-Shown when backend/venv/ does not exist (or is broken). All heavy work runs
-in a background QThread so the UI stays responsive. Can be re-run from
-Settings → Server → Reinstall Backend.
+Shown when the embedded Python is absent (or broken). All heavy work runs in a
+background QThread so the UI stays responsive. Can be re-run from
+Settings → Service → Reinstall transcription service.
+
+Architecture: instead of requiring a system Python, we download the official
+Python embeddable package (~10 MB) into the bureau data directory and install
+all packages directly into it. No system changes; no UAC; no PATH modifications.
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +31,17 @@ from PySide6.QtWidgets import (
 )
 
 from . import user_data
+
+# ---------------------------------------------------------------------------
+# Embedded Python config
+# ---------------------------------------------------------------------------
+
+_PYTHON_VERSION = "3.11.9"
+_PYTHON_EMBED_URL = (
+    f"https://www.python.org/ftp/python/{_PYTHON_VERSION}/"
+    f"python-{_PYTHON_VERSION}-embed-amd64.zip"
+)
+_GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
 # ---------------------------------------------------------------------------
 # Package lists
@@ -56,13 +73,23 @@ _STACK = [
 ]
 
 
-def backend_ready() -> bool:
-    """Return True if backend/venv/ looks usable."""
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+def _python_dir() -> Path:
+    return user_data.backend_dir() / "python"
+
+
+def _python_exe() -> Path:
     if sys.platform == "win32":
-        python = user_data.backend_dir() / "venv" / "Scripts" / "python.exe"
-    else:
-        python = user_data.backend_dir() / "venv" / "bin" / "python"
-    return python.exists()
+        return _python_dir() / "python.exe"
+    return _python_dir() / "python"
+
+
+def backend_ready() -> bool:
+    """Return True if the embedded Python looks usable."""
+    return _python_exe().exists()
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +97,10 @@ def backend_ready() -> bool:
 # ---------------------------------------------------------------------------
 
 class _InstallWorker(QThread):
-    step_started = Signal(int, str)        # step index, description
-    step_progress = Signal(int, int)       # step index, percent (0-100)
-    step_done = Signal(int)               # step index
-    step_failed = Signal(int, str)        # step index, error message
+    step_started = Signal(int, str)     # step index, description
+    step_progress = Signal(int, int)    # step index, percent (0-100)
+    step_done = Signal(int)             # step index
+    step_failed = Signal(int, str)      # step index, error message
     all_done = Signal()
 
     def __init__(self, use_cuda: bool = False, parent=None) -> None:
@@ -88,42 +115,38 @@ class _InstallWorker(QThread):
     def run(self) -> None:
         try:
             self._run_steps()
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             pass  # individual steps already emit step_failed
 
     def _run_steps(self) -> None:
-        backend = user_data.backend_dir()
+        python_dir = _python_dir()
+        python_exe = _python_exe()
 
-        # ── Step 0: Find system Python ───────────────────────────────────
-        self.step_started.emit(0, "Finding Python runtime…")
-        python = self._find_system_python()
-        if python is None:
-            self.step_failed.emit(0, (
-                "Python 3.9 or later not found on PATH.\n"
-                "Install Python from https://www.python.org/downloads/ and try again."
-            ))
-            return
-        self.step_done.emit(0)
+        # ── Step 0: Prepare Python runtime ──────────────────────────────
+        if python_exe.exists():
+            self.step_started.emit(0, "Python runtime found.")
+            self.step_progress.emit(0, 100)
+            self.step_done.emit(0)
+        else:
+            self.step_started.emit(0, f"Downloading Python {_PYTHON_VERSION}…")
+            ok, err = self._download_python(python_dir, 0)
+            if not ok:
+                self.step_failed.emit(0, err)
+                return
+            self.step_done.emit(0)
 
-        # ── Step 1: Create venv ──────────────────────────────────────────
-        self.step_started.emit(1, "Creating virtual environment…")
-        venv_path = backend / "venv"
-        if venv_path.exists():
-            shutil.rmtree(venv_path, ignore_errors=True)
-        ok, err = self._run([str(python), "-m", "venv", str(venv_path)], 1, indeterminate=True)
+        # ── Step 1: Bootstrap pip ────────────────────────────────────────
+        self.step_started.emit(1, "Checking package manager…")
+        ok, err = self._bootstrap_pip(python_dir, python_exe, 1)
         if not ok:
             self.step_failed.emit(1, err)
             return
         self.step_done.emit(1)
 
-        venv_python = self._python_exe(venv_path)
-
         # ── Step 2: Upgrade pip ──────────────────────────────────────────
-        # Use `python -m pip` rather than pip.exe — Windows locks the executable
-        # while it is running, preventing self-upgrade via pip.exe directly.
         self.step_started.emit(2, "Upgrading pip…")
         ok, err = self._run(
-            [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
+            [str(python_exe), "-m", "pip", "install", "--upgrade", "pip"],
             2, indeterminate=True,
         )
         if not ok:
@@ -134,7 +157,9 @@ class _InstallWorker(QThread):
         # ── Step 3: Install PyTorch ──────────────────────────────────────
         self.step_started.emit(3, "Installing PyTorch (this may take several minutes)…")
         torch_pkgs = _TORCH_CUDA if self._use_cuda else _TORCH_CPU
-        ok, err = self._run([str(venv_python), "-m", "pip", "install"] + torch_pkgs, 3)
+        ok, err = self._run(
+            [str(python_exe), "-m", "pip", "install"] + torch_pkgs, 3,
+        )
         if not ok:
             self.step_failed.emit(3, err)
             return
@@ -142,7 +167,9 @@ class _InstallWorker(QThread):
 
         # ── Step 4: Install transcription stack ─────────────────────────
         self.step_started.emit(4, "Installing transcription stack…")
-        ok, err = self._run([str(venv_python), "-m", "pip", "install"] + _STACK, 4)
+        ok, err = self._run(
+            [str(python_exe), "-m", "pip", "install"] + _STACK, 4,
+        )
         if not ok:
             self.step_failed.emit(4, err)
             return
@@ -155,7 +182,7 @@ class _InstallWorker(QThread):
             "device = 'cuda' if torch.cuda.is_available() else 'cpu'; "
             "whisperx.load_model('medium', device, compute_type='int8')"
         )
-        ok, err = self._run([str(venv_python), "-c", script], 5, indeterminate=True)
+        ok, err = self._run([str(python_exe), "-c", script], 5, indeterminate=True)
         if not ok:
             self.step_failed.emit(5, err)
             return
@@ -164,27 +191,95 @@ class _InstallWorker(QThread):
         self.all_done.emit()
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Download helpers
     # ------------------------------------------------------------------
 
-    def _find_system_python(self) -> Optional[Path]:
-        candidates = ["python3", "python", "python3.11", "python3.12", "python3.10", "python3.9"]
-        for name in candidates:
-            exe = shutil.which(name)
-            if exe is None:
-                continue
-            try:
-                result = subprocess.run(
-                    [exe, "-c", "import sys; print(sys.version_info[:2])"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if result.returncode == 0:
-                    ver = eval(result.stdout.strip())  # noqa: S307
-                    if ver >= (3, 9):
-                        return Path(exe)
-            except Exception:
-                continue
-        return None
+    def _download_python(self, python_dir: Path, step: int) -> tuple[bool, str]:
+        """Download and extract the Python embeddable package."""
+        try:
+            python_dir.mkdir(parents=True, exist_ok=True)
+            zip_path = python_dir.parent / "_python.zip"
+
+            # Stream download with progress
+            with urllib.request.urlopen(_PYTHON_EMBED_URL, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunks: list[bytes] = []
+                while True:
+                    if self._cancel:
+                        return False, "Cancelled."
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        self.step_progress.emit(step, min(int(downloaded * 50 / total), 50))
+
+            zip_path.write_bytes(b"".join(chunks))
+            self.step_progress.emit(step, 55)
+
+            # Extract
+            self.step_started.emit(step, "Extracting…")
+            with zipfile.ZipFile(str(zip_path), "r") as z:
+                z.extractall(str(python_dir))
+            zip_path.unlink(missing_ok=True)
+            self.step_progress.emit(step, 80)
+
+            # Enable site-packages: patch the ._pth file generated by the
+            # embeddable package (e.g. python311._pth). The file disables site
+            # by default; uncommenting `import site` activates it.
+            for pth in python_dir.glob("python*._pth"):
+                text = pth.read_text(encoding="utf-8")
+                patched = text.replace("#import site", "import site")
+                if patched == text:
+                    # Line may lack the leading #; add if import site is missing
+                    if "import site" not in text:
+                        patched = text.rstrip() + "\nimport site\n"
+                pth.write_text(patched, encoding="utf-8")
+
+            self.step_progress.emit(step, 100)
+            return True, ""
+        except Exception as exc:
+            return False, str(exc)
+
+    def _bootstrap_pip(
+        self, python_dir: Path, python_exe: Path, step: int
+    ) -> tuple[bool, str]:
+        """Ensure pip is available in the embedded Python."""
+        # Check if pip already works (re-run case)
+        try:
+            r = subprocess.run(
+                [str(python_exe), "-m", "pip", "--version"],
+                capture_output=True, timeout=15,
+            )
+            if r.returncode == 0:
+                self.step_progress.emit(step, 100)
+                return True, ""
+        except Exception:
+            pass
+
+        try:
+            # Download get-pip.py
+            self.step_started.emit(step, "Downloading pip bootstrap…")
+            get_pip_path = python_dir / "_get-pip.py"
+            with urllib.request.urlopen(_GET_PIP_URL, timeout=30) as resp:
+                get_pip_path.write_bytes(resp.read())
+            self.step_progress.emit(step, 40)
+
+            # Run it
+            self.step_started.emit(step, "Installing pip…")
+            ok, err = self._run(
+                [str(python_exe), str(get_pip_path)], step, indeterminate=True,
+            )
+            get_pip_path.unlink(missing_ok=True)
+            return ok, err
+        except Exception as exc:
+            return False, str(exc)
+
+    # ------------------------------------------------------------------
+    # Subprocess runner
+    # ------------------------------------------------------------------
 
     def _run(
         self,
@@ -192,7 +287,7 @@ class _InstallWorker(QThread):
         step: int,
         indeterminate: bool = False,
     ) -> tuple[bool, str]:
-        """Run a subprocess and stream its stdout to progress signals."""
+        """Run a subprocess, stream stdout, emit progress signals."""
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -204,12 +299,14 @@ class _InstallWorker(QThread):
             lines: list[str] = []
             percent = 0
             for line in proc.stdout:  # type: ignore[union-attr]
+                if self._cancel:
+                    proc.terminate()
+                    return False, "Cancelled."
                 lines.append(line)
                 if indeterminate:
                     percent = (percent + 3) % 95
                     self.step_progress.emit(step, percent)
                 else:
-                    # pip outputs "Downloading ... X%" or "Installing ..."
                     if "%" in line:
                         try:
                             pct = int(line.split("%")[0].strip().split()[-1])
@@ -221,11 +318,11 @@ class _InstallWorker(QThread):
             if proc.returncode != 0:
                 return False, "".join(lines[-40:])
             return True, ""
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return False, str(exc)
 
     @staticmethod
-    def _python_exe(venv: Path) -> Path:
+    def _python_exe_static(venv: Path) -> Path:
         if sys.platform == "win32":
             return venv / "Scripts" / "python.exe"
         return venv / "bin" / "python"
@@ -275,8 +372,8 @@ class _StepRow(QWidget):
 # ---------------------------------------------------------------------------
 
 _STEP_LABELS = [
-    "Find Python runtime",
-    "Create virtual environment",
+    "Prepare Python runtime",
+    "Bootstrap package manager",
     "Upgrade pip",
     "Install PyTorch",
     "Install transcription stack",
@@ -285,12 +382,12 @@ _STEP_LABELS = [
 
 
 class SetupWizard(QDialog):
-    """Modal dialog shown on first launch when backend/venv/ is absent.
+    """Modal dialog shown on first launch when the embedded Python is absent.
 
-    Blocks the caller until setup succeeds or the user cancels. Check the
-    return value of exec():
+    Blocks the caller until installation succeeds or the user cancels. Check
+    the return value of exec():
       - QDialog.DialogCode.Accepted  → ready to start ServerManager
-      - QDialog.DialogCode.Rejected  → user cancelled; run in recording-only mode
+      - QDialog.DialogCode.Rejected  → user cancelled; run in capture-only mode
     """
 
     def __init__(self, use_cuda: bool = False, parent=None) -> None:
@@ -309,7 +406,7 @@ class SetupWizard(QDialog):
             "<b>Bureau of Applied Science<br>Field Recorder — Model 1</b><br><br>"
             "On-device transcription engine — installation procedure.<br>"
             "Approximately 3–5 GB including PyTorch and model weights.<br>"
-            "A dedicated virtual environment will be created; existing Python required."
+            "Python runtime downloaded automatically (~10 MB)."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -326,7 +423,9 @@ class SetupWizard(QDialog):
         layout.addWidget(self._status_label)
 
         btns = QDialogButtonBox()
-        self._cancel_btn = btns.addButton("Cancel installation", QDialogButtonBox.ButtonRole.RejectRole)
+        self._cancel_btn = btns.addButton(
+            "Cancel installation", QDialogButtonBox.ButtonRole.RejectRole
+        )
         self._cancel_btn.clicked.connect(self._on_cancel)
         layout.addWidget(btns)
 
@@ -385,10 +484,8 @@ class SetupWizard(QDialog):
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
             self._worker.wait(3000)
-            # Clean up partial venv
-            venv = user_data.backend_dir() / "venv"
-            if venv.exists():
-                shutil.rmtree(venv, ignore_errors=True)
+            # Remove partial installation so the wizard restarts clean next time
+            shutil.rmtree(_python_dir(), ignore_errors=True)
         self.reject()
 
     def closeEvent(self, event) -> None:

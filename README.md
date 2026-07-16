@@ -45,13 +45,13 @@ The GUI manages the transcription service as a child process. The service runs i
 
 ## Installation
 
-**Requirements:** Python 3.9 or later, Windows 10/11.
+**Requirements:** Windows 10/11.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-The transcription stack (PyTorch, whisperX, pyannote) is installed separately into a dedicated virtual environment by the setup wizard on first launch, or via **Settings → Service → Reinstall transcription service**. Approximately 3–5 GB.
+The transcription stack (PyTorch, whisperX, pyannote) is installed by the setup wizard on first launch, or via **Settings → Service → Reinstall transcription service**. The wizard downloads a self-contained Python runtime (~10 MB) automatically — no system Python required for the transcription backend. Total installation approximately 3–5 GB.
 
 ---
 

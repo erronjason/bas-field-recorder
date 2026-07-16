@@ -185,9 +185,9 @@ class ServerManager(QObject):
 
     def _backend_python(self) -> Optional[Path]:
         if sys.platform == "win32":
-            p = user_data.backend_dir() / "venv" / "Scripts" / "python.exe"
+            p = user_data.backend_dir() / "python" / "python.exe"
         else:
-            p = user_data.backend_dir() / "venv" / "bin" / "python"
+            p = user_data.backend_dir() / "python" / "python"
         return p if p.exists() else None
 
     def _pick_port(self) -> Optional[int]:

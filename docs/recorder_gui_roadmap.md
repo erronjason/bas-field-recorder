@@ -58,7 +58,7 @@ Initial target is Windows. The GUI code is platform-neutral and designed to exte
 | Audio capture — macOS (Phase 4) | SoundCard via CoreAudio | `include_loopback=True`; requires TCC grant |
 | Audio capture — Linux (Phase 4) | SoundCard via PulseAudio/PipeWire | Monitor source loopback |
 | Audio mixing | NumPy + SciPy | `resample_poly` for post-capture resampling; already in tree via whisperX |
-| Transcription API | FastAPI (local REST server) | Thin HTTP wrapper around `diarized_transcriber.py`; managed by GUI |
+| Transcription API | FastAPI (local REST server) | Thin HTTP wrapper around `transcribe.py`; managed by GUI |
 | HTTP client | `httpx` or `urllib` (stdlib) | GUI talks to transcription server on localhost |
 | Binary packaging | PyInstaller | Build as `--onedir`; GUI binary is the sole distributable artifact |
 | Backend venv | Embedded Python + pip | GUI bootstraps backend on first run; stored in `AppData\DiarizedTranscriber\backend\` |
@@ -98,18 +98,18 @@ DiarizedTranscriber/
 
 ### JSON schema
 
-`diarized_transcriber.py` produces the base segment data. The GUI enriches the JSON in-place. All GUI-managed fields are initialized when the recording stops (before transcription runs).
+`transcribe.py` produces the base segment data. The GUI enriches the JSON in-place. All GUI-managed fields are initialized when the recording stops (before transcription runs).
 
 ```json
 {
-  "display_name": "Site call with Teddy",
+  "display_name": "Site call with Steve",
   "created_at": "2026-07-15T14:32:01",
   "backend": "local",
   "audio_file": "recording_20260715_143201.wav",
   "speakers_detected": 2,
   "speaker_names": {
     "SPEAKER_00": "Jason",
-    "SPEAKER_01": "Teddy"
+    "SPEAKER_01": "Steve"
   },
   "notes": "Key points:\n- Follow up on budget by Friday",
   "retain": false,
@@ -119,20 +119,20 @@ DiarizedTranscriber/
 }
 ```
 
-GUI-owned fields (never written by `diarized_transcriber.py`):
+GUI-owned fields (never written by `transcribe.py`):
 - `display_name` — set at recording stop prompt; editable in detail panel
 - `created_at` — ISO timestamp set at recording stop
 - `speaker_names` — populated via speaker naming dialog post-transcription
 - `notes` — from live notes panel; editable post-call
 - `retain` — per-recording auto-delete override; default `false`
 
-`diarized_transcriber.py` is unchanged — it writes `backend`, `audio_file`, `speakers_detected`, and `segments`. The GUI enriches the file before and after transcription.
+`transcribe.py` is unchanged — it writes `backend`, `audio_file`, `speakers_detected`, and `segments`. The GUI enriches the file before and after transcription.
 
 ### Process model
 
 ```
 recorder_gui.exe  (GUI — master process)
- ├── Manages lifecycle of → diarized_transcriber_server.py (FastAPI — child process)
+ ├── Manages lifecycle of → transcription_server.py (FastAPI — child process)
  │    └── Runs inside backend/venv/; started on GUI launch; stopped on GUI quit
  ├── QApplication
  ├── SystemTrayApp (QSystemTrayIcon)
@@ -151,7 +151,7 @@ recorder_gui.exe  (GUI — master process)
 
 **Server lifecycle:**
 1. GUI starts → check health endpoint `GET http://localhost:7777/health`
-2. If unhealthy: launch `backend/venv/python diarized_transcriber_server.py --port 7777` as `QProcess`
+2. If unhealthy: launch `backend/venv/python transcription_server.py --port 7777` as `QProcess`
 3. Poll health every 2 seconds until ready (max 30 seconds; show "Starting backend…" in tray tooltip)
 4. If port 7777 is taken: try 7778–7780; store chosen port in `settings.json`
 5. GUI quit → send `POST /shutdown` to server, then terminate the `QProcess` if it doesn't exit within 5 seconds
@@ -240,9 +240,9 @@ The wizard can be re-run from **Settings → Transcription → Reinstall Backend
 ## Directory Structure
 
 ```
-diarized_transcriber/
-├── diarized_transcriber.py           # existing CLI transcriber (unchanged)
-├── diarized_transcriber_server.py    # NEW — FastAPI wrapper (thin HTTP layer)
+field-recorder/
+├── transcribe.py           # existing CLI transcriber (unchanged)
+├── transcription_server.py    # NEW — FastAPI wrapper (thin HTTP layer)
 ├── recorder_gui.py                   # entry point for the tray app
 ├── recorder/
 │   ├── __init__.py
@@ -459,9 +459,9 @@ a = Analysis(
 
 **Deliverable:** First-run setup wizard installs the backend. The GUI starts and monitors the FastAPI transcription server. Transcription queue with Pause/Cancel, global hotkeys, cloud consent.
 
-### 2.1 — Transcription server (`diarized_transcriber_server.py`)
+### 2.1 — Transcription server (`transcription_server.py`)
 
-Thin FastAPI wrapper around `diarized_transcriber.py`:
+Thin FastAPI wrapper around `transcribe.py`:
 
 ```
 GET  /health               → {"status": "ready", "model": "small"}
@@ -487,7 +487,7 @@ class ServerManager(QObject):
 
     def start(self):
         python = user_data.backend_dir() / "venv" / "Scripts" / "python.exe"
-        server_script = app_resource_path("diarized_transcriber_server.py")
+        server_script = app_resource_path("transcription_server.py")
         self._proc = QProcess()
         self._proc.start(str(python), [str(server_script), "--port", str(self._port)])
         self._health_timer = QTimer()
@@ -610,22 +610,22 @@ Three-pane `QMainWindow`:
 
 ```
 ┌───────────────────────┬──────────────────────────────────────────────────┐
-│  Recordings           │  Site call with Teddy                            │
+│  Recordings           │  Site call with Steve                            │
 │  ───────────────────  │  ──────────────────────────────────────────────  │
 │  [search bar]         │  [▶ ━━━━━━━━━━━━●━━━  01:23 / 03:42]  [⋯]      │
 │                       │  ──────────────────────────────────────────────  │
-│  Site call with Teddy │  [Transcribe] [Retranscribe] [👤 Speakers]       │
+│  Site call with Steve │  [Transcribe] [Retranscribe] [👤 Speakers]       │
 │  Jul 15  3:42  ✓  2   │  [📋 Copy]  [🗑 Delete]  [📁 Reveal]  [★ Keep]  │
 │  Jul 12  1:12  ✓  3   │  ──────────────────────────────────────────────  │
 │  Jul 10  0:48  ⏳      │  [Reading ●] [Timestamps ○]                     │
 │                       │                                                  │
 │                       │  Jason: Hey, good to connect. So the reason I…  │
-│                       │  Teddy: Yeah absolutely. I've been thinking…    │
+│                       │  Steve: Yeah absolutely. I've been thinking…    │
 │                       │                                                  │
 │                       │  ──────────────────────────────────────────────  │
 │                       │  Notes                                           │
 │                       │  Follow up on budget by Friday.                 │
-│                       │  Teddy to send revised proposal.                │
+│                       │  Steve to send revised proposal.                │
 │                       │                              [Save Notes]        │
 └───────────────────────┴──────────────────────────────────────────────────┘
 ```
@@ -863,7 +863,7 @@ httpx>=0.27.0
 
 ### Phase 2
 
-1. Implement `diarized_transcriber_server.py` — FastAPI wrapper with all endpoints
+1. Implement `transcription_server.py` — FastAPI wrapper with all endpoints
 2. Implement `recorder/server_manager.py` — `ServerManager` lifecycle
 3. Implement `recorder/setup_wizard.py` — `SetupWizard` with step progress
 4. Implement `recorder/transcription_queue.py` — queue, polling, pause, cancel

@@ -1,16 +1,9 @@
-# Bureau of Applied Science — Field Recorder
+# BAS - Field Recorder - Model 1
 
 Captures calls and meetings as structured records.
 
-**Model 1** — Windows tray application with on-device and off-device transcription.
-
----
-
-## What it produces
-
-A **record**: a speaker-attributed, timestamped, annotated account of spoken work, stored as a FLAC audio file and a JSON sidecar. The JSON is machine-addressable — stable identity, typed fields, no derivation required from filenames.
-
-See [Record Format](#record-format) for the full schema.
+### *Bureau of Applied Science - Field Recorder - Model 1*
+Windows tray application. On-device transcription by default.
 
 ---
 
@@ -18,11 +11,11 @@ See [Record Format](#record-format) for the full schema.
 
 | Component | Description |
 |---|---|
-| `recorder_gui.py` | Windows tray application — capture, naming, notes, transcription queue |
-| `diarized_transcriber_server.py` | FastAPI transcription service — managed by the GUI, also launchable standalone |
-| `diarized_transcriber.py` | CLI transcription script — direct use without the GUI |
+| `recorder_gui.py` | Tray application - capture, naming, notes, transcription queue |
+| `transcription_server.py` | Transcription service - managed by the GUI, also launchable standalone |
+| `transcribe.py` | CLI transcription script - direct use without the GUI |
 
-The GUI manages the transcription service as a child process. The service runs in an isolated virtual environment (installed on first launch).
+The GUI manages the transcription service as a child process. The service runs in a self-contained embedded Python runtime, installed on first launch.
 
 ---
 
@@ -33,7 +26,7 @@ The GUI manages the transcription service as a child process. The service runs i
 ├── records\                    # every record produced by any Bureau instrument
 ├── instruments\
 │   └── field-recorder\
-│       ├── backend\            # virtual environment and service
+│       ├── backend\            # embedded Python runtime and transcription service
 │       ├── models\             # Whisper and pyannote weights
 │       └── settings.json       # instrument settings
 ├── tmp\                        # in-progress captures (crash recovery)
@@ -41,29 +34,34 @@ The GUI manages the transcription service as a child process. The service runs i
 └── deletions.log
 ```
 
+macOS: `~/Library/Application Support/Bureau of Applied Science/`  
+Linux: `~/.local/share/bureau-of-applied-science/`
+
 ---
 
 ## Installation
 
-**Requirements:** Windows 10/11.
+**Requirements:** Windows 10/11. Python 3.10+ (GUI dependencies only).
 
 ```bash
+git clone git@github.com:erronjason/bas-field-recorder.git
+cd bas-field-recorder
 pip install -r requirements.txt
 ```
 
-The transcription stack (PyTorch, whisperX, pyannote) is installed by the setup wizard on first launch, or via **Settings → Service → Reinstall transcription service**. The wizard downloads a self-contained Python runtime (~10 MB) automatically — no system Python required for the transcription backend. Total installation approximately 3–5 GB.
+On first launch, the setup wizard installs the on-device transcription engine into a self-contained embedded Python runtime (~10 MB download). No system Python is required for the transcription backend. The full stack - PyTorch, whisperX, pyannote - is approximately 3–5 GB.
+
+The wizard can be re-run at any time from **Settings → Service → Reinstall transcription service**.
 
 ---
 
-## Running the GUI
-
-From source:
+## Running
 
 ```bash
 python recorder_gui.py
 ```
 
-The application appears as a tray icon. On first run, the setup wizard installs the on-device transcription engine.
+The application appears as a tray icon. On first run the setup wizard installs the on-device transcription engine.
 
 **Build a distributable (Windows):**
 
@@ -75,18 +73,16 @@ Output: `dist\FieldRecorder\FieldRecorder.exe`
 
 ---
 
-## GUI reference
+## Tray icon
 
-### Tray icon states
-
-The icon uses the BAS three-line mark. The bottom bar signals state:
+The icon uses the BAS three-line mark. The bottom bar signals capture state:
 
 | State | Bottom bar |
 |---|---|
-| Idle | Warm light — no active capture |
-| Capturing | Warm red — audio being written to disk |
-| Paused | Mid orange — capture suspended |
-| Saving | Steel blue — mixdown and transcription queued |
+| Idle | Warm light - no active capture |
+| Capturing | Warm red - audio being written to disk |
+| Paused | Mid orange - capture suspended |
+| Saving | Steel blue - mixdown and transcription queued |
 
 ### Menu
 
@@ -114,15 +110,19 @@ Configurable in **Settings → Hotkeys**.
 
 ---
 
-## Transcription backends
+## Transcription
 
-### On-device (default)
+On-device transcription is the default and the instrument's position. Audio does not leave the machine. Off-device is available, clearly labeled, and consented to once.
 
-whisperX + pyannote.audio. Audio does not leave the machine. Requires the first-run installation (~3–5 GB). GPU acceleration via NVIDIA CUDA is automatic when available.
+### On-device
 
-### Off-device — AssemblyAI
+whisperX + pyannote.audio. Requires the first-run installation (~3–5 GB). GPU acceleration via NVIDIA CUDA is used automatically when available.
+
+### Off-device - AssemblyAI
 
 Audio is sent to AssemblyAI's servers over an encrypted connection. Consent is requested once on first use. Set the API key in **Settings → Transcription**.
+
+Off-device is appropriate when no NVIDIA GPU is available, when transcribing a long session on CPU, or when accuracy across five or more speakers is the priority.
 
 **Comparison:**
 
@@ -130,42 +130,29 @@ Audio is sent to AssemblyAI's servers over an encrypted connection. Consent is r
 |---|---|---|
 | Cost | Free | ~$0.37–$0.65 / hr of audio |
 | Privacy | Audio stays on this machine | Audio transmitted to AssemblyAI |
-| Speed — GPU | ~10–20× real-time | ~10–15× real-time |
-| Speed — CPU | ~0.3–0.5× real-time | ~10–15× real-time |
+| Speed - GPU | ~10–20× real-time | ~10–15× real-time |
+| Speed - CPU | ~0.3–0.5× real-time | ~10–15× real-time |
 | 2-speaker accuracy | ~85–95% | ~85–90% |
 | 5+ speaker accuracy | ~70–80% | ~85–90% |
 | Requires | HuggingFace token + model terms | AssemblyAI API key |
 
-Off-device is appropriate when no NVIDIA GPU is available, when transcribing a long session on CPU, or when 5+ speaker accuracy is the priority.
-
 ---
 
-## Direct CLI use
-
-The transcription script can be called without the GUI:
+## CLI
 
 ```bash
-python diarized_transcriber.py <audio_file> [options]
+python transcribe.py <audio_file> [options]
 ```
-
-**Options:**
 
 | Option | Default | Description |
 |---|---|---|
-| `--backend` | `local` | `local` (whisperX + pyannote) or `cloud` (AssemblyAI) |
+| `--backend` | `local` | `local` - on-device (whisperX + pyannote); `cloud` - off-device (AssemblyAI) |
 | `--speakers` | auto | Force a specific speaker count |
-| `--model` | `medium` | Whisper model: `tiny` `base` `small` `medium` `large` |
+| `--model` | `medium` | Whisper model size: `tiny` `base` `small` `medium` `large` |
 | `--language` | `en` | Language code; `auto` to detect |
-| `--output` | input stem | Output base name — writes `.json` and `.txt` |
+| `--output` | input stem | Output base name - writes `.json` and `.txt` |
 | `--hf-token` | `$HF_TOKEN` | HuggingFace token (on-device backend) |
 | `--api-key` | `$ASSEMBLYAI_API_KEY` | AssemblyAI API key (off-device backend) |
-
-**Environment variables:**
-
-```bash
-HF_TOKEN=hf_...
-ASSEMBLYAI_API_KEY=...
-```
 
 **HuggingFace token (on-device backend):**
 
@@ -173,9 +160,7 @@ ASSEMBLYAI_API_KEY=...
 2. Settings → Access Tokens → New token (read scope).
 3. Accept model terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1).
 
----
-
-## Whisper model reference (on-device)
+**Whisper model sizes:**
 
 | Model | VRAM | Notes |
 |---|---|---|
@@ -187,23 +172,19 @@ ASSEMBLYAI_API_KEY=...
 
 Use `--model small` if the GPU runs out of memory on `medium`.
 
----
-
-## Supported audio formats
-
-`wav`, `flac`, `m4a`, `mp3`, `mp4`, `ogg`, `webm`
+**Supported formats:** `wav` `flac` `m4a` `mp3` `mp4` `ogg` `webm`
 
 ---
 
 ## Record Format
 
-**Revision 1.** Every record produced by Field Recorder conforms to this schema.
+**Revision 1.** Every record produced by BAS - Field Recorder conforms to this schema.
 
 ```json
 {
   "record_id": "3fa8c1d2-4e7b-4a9c-b1f0-8d2e6c3a5f91",
   "format_revision": 1,
-  "display_name": "Site call with Teddy",
+  "display_name": "Call with the Bureau",
   "created_at": "2026-07-16T14:23:00+00:00",
   "audio_file": "recording_20260716_142300.flac",
   "source": {
@@ -217,7 +198,7 @@ Use `--model small` if the GPU runs out of memory on `medium`.
   "backend": "local",
   "speakers_detected": 2,
   "speaker_names": {
-    "SPEAKER_00": "Teddy",
+    "SPEAKER_00": "Steve",
     "SPEAKER_01": ""
   },
   "notes": "",
@@ -231,12 +212,12 @@ Use `--model small` if the GPU runs out of memory on `medium`.
 
 **Field notes:**
 
-- `record_id` — stable UUID. Not derived from filename or timestamp.
-- `format_revision` — increments only on breaking schema changes.
-- `source` — best-effort metadata about the capture context. Nulls are honest.
-- `speaker_names` — maps diarization labels (`SPEAKER_00`, …) to real identities. Populated by the operator after review.
-- `participants` — who was in the session. Distinct from `speaker_names`, which is the label map.
-- `retain` — when `true`, the record is excluded from any retention policy.
+- `record_id` - stable UUID. Not derived from filename or timestamp.
+- `format_revision` - increments only on breaking schema changes.
+- `source` - best-effort metadata about the capture context. Nulls are honest.
+- `speaker_names` - maps diarization labels (`SPEAKER_00`, …) to real identities. Populated by the operator after review.
+- `participants` - who was in the session. Distinct from `speaker_names`, which is the label map.
+- `retain` - when `true`, the record is excluded from any retention policy.
 
 The plain-text sidecar (`.txt`) is derived from `segments`: `[Speaker N] (Xs – Ys): text`, with diarization labels normalized to `Speaker 1`, `Speaker 2`, etc.
 

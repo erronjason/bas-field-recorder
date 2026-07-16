@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal, Slot
+from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import user_data
+from .icons import bas_icon, bas_svg_path
 
 # ---------------------------------------------------------------------------
 # Embedded Python config
@@ -396,14 +399,33 @@ class SetupWizard(QDialog):
         self._worker: Optional[_InstallWorker] = None
 
         self.setWindowTitle("Field Recorder — Installation")
+        self.setWindowIcon(bas_icon(32))
         self.setMinimumWidth(520)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
 
+        svg_path = bas_svg_path("BAS-landscape")
+        if svg_path.exists():
+            renderer = QSvgRenderer(str(svg_path))
+            native = renderer.defaultSize()            # 683 × 137
+            target_w = 460
+            target_h = int(target_w * native.height() / native.width())
+            px = QPixmap(target_w, target_h)
+            px.fill(QColor("transparent"))
+            painter = QPainter(px)
+            renderer.render(painter)
+            painter.end()
+            header_lbl = QLabel()
+            header_lbl.setPixmap(px)
+            layout.addWidget(header_lbl)
+        else:
+            fallback = QLabel("<b>Bureau of Applied Science<br>Field Recorder — Model 1</b>")
+            fallback.setWordWrap(True)
+            layout.addWidget(fallback)
+
         intro = QLabel(
-            "<b>Bureau of Applied Science<br>Field Recorder — Model 1</b><br><br>"
             "On-device transcription engine — installation procedure.<br>"
             "Approximately 3–5 GB including PyTorch and model weights.<br>"
             "Python runtime downloaded automatically (~10 MB)."

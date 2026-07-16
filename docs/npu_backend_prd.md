@@ -1,9 +1,9 @@
-# PRD: AMD XDNA 2 NPU Backend for Diarized Transcriber
+# PRD: AMD XDNA 2 NPU Backend for Field Recorder Transcriber
 
 ## Document purpose
 
 This document is written for an instance of Claude Code to implement AMD XDNA 2 NPU support
-in the diarized transcriber without requiring human interaction beyond initial review. It is
+in the Field Recorder transcriber without requiring human interaction beyond initial review. It is
 intentionally specific: file paths, class names, method signatures, package names, and test
 strategies are all spelled out so the implementer can proceed end-to-end.
 
@@ -11,7 +11,7 @@ strategies are all spelled out so the implementer can proceed end-to-end.
 
 ## Background
 
-The diarized transcriber (`diarized_transcriber.py`) currently supports two backends:
+The Field Recorder transcriber (`transcribe.py`) currently supports two backends:
 
 - `local` — whisperX + pyannote.audio, using CUDA if an NVIDIA GPU is present, otherwise CPU
 - `cloud` — AssemblyAI API
@@ -54,8 +54,8 @@ The target user has:
 ## Project structure (read before making changes)
 
 ```
-diarized_transcriber/
-├── diarized_transcriber.py     ← main script; all backends live here
+transcribe/
+├── transcribe.py     ← main script; all backends live here
 ├── requirements.txt
 ├── .env                        ← gitignored; holds HF_TOKEN, ASSEMBLYAI_API_KEY
 ├── .env.example
@@ -69,7 +69,7 @@ diarized_transcriber/
     └── test_npu_backend.py     ← to be created
 ```
 
-Existing class hierarchy in `diarized_transcriber.py`:
+Existing class hierarchy in `transcribe.py`:
 
 ```python
 @dataclass
@@ -465,7 +465,7 @@ class TestNPUAvailable(unittest.TestCase):
 
     def test_returns_false_on_non_windows(self):
         with patch("os.name", "posix"):
-            from diarized_transcriber import _npu_available
+            from transcribe import _npu_available
             self.assertFalse(_npu_available())
 
     def test_returns_false_when_onnxruntime_missing(self):
@@ -473,7 +473,7 @@ class TestNPUAvailable(unittest.TestCase):
              patch.dict("sys.modules", {"onnxruntime": None}):
             # Reimport to get fresh function scope
             import importlib
-            import diarized_transcriber as dt
+            import transcribe as dt
             importlib.reload(dt)
             self.assertFalse(dt._npu_available())
 
@@ -483,7 +483,7 @@ class TestNPUAvailable(unittest.TestCase):
         with patch("os.name", "nt"), \
              patch.dict("sys.modules", {"onnxruntime": mock_ort}):
             import importlib
-            import diarized_transcriber as dt
+            import transcribe as dt
             importlib.reload(dt)
             self.assertFalse(dt._npu_available())
 
@@ -495,7 +495,7 @@ class TestNPUAvailable(unittest.TestCase):
         with patch("os.name", "nt"), \
              patch.dict("sys.modules", {"onnxruntime": mock_ort}):
             import importlib
-            import diarized_transcriber as dt
+            import transcribe as dt
             importlib.reload(dt)
             self.assertTrue(dt._npu_available())
 
@@ -506,7 +506,7 @@ class TestFindVaipConfig(unittest.TestCase):
         with patch("os.name", "nt"), \
              patch("pathlib.Path.exists", return_value=False), \
              patch.dict(os.environ, {}, clear=True):
-            from diarized_transcriber import _find_vaip_config
+            from transcribe import _find_vaip_config
             result = _find_vaip_config()
             self.assertIsNone(result)
 
@@ -515,7 +515,7 @@ class TestFindVaipConfig(unittest.TestCase):
         with patch("os.name", "nt"), \
              patch.dict(os.environ, {"RYZEN_AI_INSTALLATION_PATH": str(fake_dir)}), \
              patch("pathlib.Path.exists", side_effect=lambda p=None: str(p or fake_dir / "vaip_config.json").endswith("vaip_config.json")):
-            from diarized_transcriber import _find_vaip_config
+            from transcribe import _find_vaip_config
             # Should find it via env var
             # (Exact assert depends on mock; verify no exception is raised)
             _find_vaip_config()  # must not raise
@@ -524,7 +524,7 @@ class TestFindVaipConfig(unittest.TestCase):
 class TestNPUBackendInit(unittest.TestCase):
 
     def _make_backend(self, model_name="small", vaip_path=Path("/fake/vaip_config.json")):
-        from diarized_transcriber import NPUBackend
+        from transcribe import NPUBackend
         return NPUBackend(
             model_name=model_name,
             hf_token="hf_test",
@@ -533,7 +533,7 @@ class TestNPUBackendInit(unittest.TestCase):
         )
 
     def test_rejects_unsupported_model(self):
-        from diarized_transcriber import NPUBackend
+        from transcribe import NPUBackend
         with self.assertRaises(ValueError) as ctx:
             NPUBackend(
                 model_name="large",
@@ -543,14 +543,14 @@ class TestNPUBackendInit(unittest.TestCase):
         self.assertIn("large", str(ctx.exception))
 
     def test_raises_when_vaip_config_missing(self):
-        from diarized_transcriber import NPUBackend
-        with patch("diarized_transcriber._find_vaip_config", return_value=None):
+        from transcribe import NPUBackend
+        with patch("transcribe._find_vaip_config", return_value=None):
             with self.assertRaises(RuntimeError) as ctx:
                 NPUBackend(model_name="small", hf_token="hf_test", vaip_config=None)
             self.assertIn("vaip_config.json", str(ctx.exception))
 
     def test_accepts_valid_model_names(self):
-        from diarized_transcriber import NPUBackend
+        from transcribe import NPUBackend
         for name in ("base", "small", "medium"):
             backend = NPUBackend(
                 model_name=name,
@@ -570,7 +570,7 @@ class TestChunkTranscription(unittest.TestCase):
     """
 
     def _make_backend(self):
-        from diarized_transcriber import NPUBackend
+        from transcribe import NPUBackend
         return NPUBackend(
             model_name="small",
             hf_token="hf_test",
@@ -669,10 +669,10 @@ class TestTranscriptionResultSchema(unittest.TestCase):
     correct schema, using a fully mocked pipeline.
     """
 
-    @patch("diarized_transcriber.NPUBackend._transcribe_chunked")
+    @patch("transcribe.NPUBackend._transcribe_chunked")
     def test_result_schema(self, mock_chunk):
         import whisperx
-        from diarized_transcriber import NPUBackend, TranscriptionResult
+        from transcribe import NPUBackend, TranscriptionResult
 
         mock_chunk.return_value = [
             {"text": "Hello", "start": 0.0, "end": 2.0},
@@ -719,23 +719,23 @@ class TestCLIBackendChoice(unittest.TestCase):
 
     def _run_main(self, args_list):
         """Run main() with given argv, capture SystemExit."""
-        import diarized_transcriber
-        with patch("sys.argv", ["diarized_transcriber.py"] + args_list):
+        import transcribe
+        with patch("sys.argv", ["transcribe.py"] + args_list):
             try:
-                diarized_transcriber.main()
+                transcribe.main()
             except SystemExit as e:
                 return e.code
         return 0
 
     def test_npu_backend_rejected_when_npu_unavailable(self):
-        with patch("diarized_transcriber._npu_available", return_value=False), \
-             patch("diarized_transcriber.resolve_input", return_value=Path("/fake/audio.m4a")):
+        with patch("transcribe._npu_available", return_value=False), \
+             patch("transcribe.resolve_input", return_value=Path("/fake/audio.m4a")):
             code = self._run_main(["audio.m4a", "--backend", "npu", "--hf-token", "hf_test"])
         self.assertNotEqual(code, 0)
 
     def test_npu_backend_rejects_large_model(self):
-        with patch("diarized_transcriber._npu_available", return_value=True), \
-             patch("diarized_transcriber.resolve_input", return_value=Path("/fake/audio.m4a")):
+        with patch("transcribe._npu_available", return_value=True), \
+             patch("transcribe.resolve_input", return_value=Path("/fake/audio.m4a")):
             code = self._run_main([
                 "audio.m4a", "--backend", "npu",
                 "--model", "large", "--hf-token", "hf_test"
@@ -772,7 +772,7 @@ guide" section. Title it `## AMD XDNA 2 NPU (Ryzen AI 300)` and cover:
 - System prerequisite: Ryzen AI Software 1.7.x from amd.com (not pip-installable)
 - Additional pip deps: `pip install "optimum[exporters]" optimum-amd onnxruntime librosa soundfile`
 - First-run model compilation warning (5–15 minutes, cached after that)
-- Usage example: `python diarized_transcriber.py "meeting.m4a" --backend npu --hf-token YOUR_TOKEN`
+- Usage example: `python transcribe.py "meeting.m4a" --backend npu --hf-token YOUR_TOKEN`
 - Note that `--model large` is not supported; recommend `--model small` for speed or `--model medium` for accuracy
 - Note that diarization still runs on CPU (pyannote)
 - Add "npu" to the backend comparison table
@@ -857,10 +857,10 @@ not treated as a future enhancement.
 The implementation is complete when:
 
 1. `python -m unittest tests/test_npu_backend.py -v` passes all tests on the development machine.
-2. `python diarized_transcriber.py audio.m4a --backend npu --hf-token X` prints a clear error
+2. `python transcribe.py audio.m4a --backend npu --hf-token X` prints a clear error
    on non-AMD hardware (not a Python traceback).
-3. `python diarized_transcriber.py audio.m4a --backend local` continues to work exactly as before.
-4. `python diarized_transcriber.py audio.m4a --backend npu --model large` exits with a useful
+3. `python transcribe.py audio.m4a --backend local` continues to work exactly as before.
+4. `python transcribe.py audio.m4a --backend npu --model large` exits with a useful
    error message before attempting any model loading.
 5. `--help` output lists `npu` as a valid backend choice.
-6. Both commits are on `master` and pushed to `git@github.com:erronjason/diarized-transcriber.git`.
+6. Both commits are on `master` and pushed to `git@github.com:erronjason/bas-field-recorder.git`.

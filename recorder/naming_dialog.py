@@ -37,7 +37,7 @@ class NamingDialog(QDialog):
         layout.addWidget(QLabel("Record name (optional):"))
 
         self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("e.g. Site call with Teddy")
+        self._name_edit.setPlaceholderText("e.g. Call with the Bureau")
         self._name_edit.returnPressed.connect(self._save)
         layout.addWidget(self._name_edit)
 

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 
 from recorder import crash_recovery
 from recorder.hotkeys import HotkeyManager
+from recorder.icons import bas_icon
 from recorder.server_manager import ServerManager
 from recorder.settings import Settings
 from recorder.setup_wizard import SetupWizard, backend_ready
@@ -16,6 +17,7 @@ from recorder.tray import SystemTrayApp
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Field Recorder")
+    app.setWindowIcon(bas_icon(32))
     app.setQuitOnLastWindowClosed(False)
 
     settings = Settings.load()

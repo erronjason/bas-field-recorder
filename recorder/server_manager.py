@@ -1,4 +1,4 @@
-"""Manages the lifecycle of diarized_transcriber_server.py as a child QProcess."""
+"""Manages the lifecycle of transcription_server.py as a child QProcess."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ class ServerManager(QObject):
             self.status_changed.emit("error")
             return
 
-        server_script = _app_resource_path("diarized_transcriber_server.py")
+        server_script = _app_resource_path("transcription_server.py")
 
         self._port = port
         self._ready = False

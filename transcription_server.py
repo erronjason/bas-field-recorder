@@ -31,7 +31,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Make diarized_transcriber importable when this script is run directly
+# Make transcribe importable when this script is run directly
 # from inside backend/venv/ (server_manager sets the script path explicitly).
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -110,7 +110,7 @@ def _transcription_subprocess(
     try:
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).parent))
-        from diarized_transcriber import (
+        from transcribe import (
             CloudBackend,
             LocalBackend,
             write_json,

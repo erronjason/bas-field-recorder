@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Slot
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import user_data
+from .icons import bas_icon as _bas_icon
 from .audio import AudioBackend, MixdownWorker, RecorderThread, get_audio_backend
 from .hotkeys import HotkeyManager
 from .naming_dialog import NamingDialog
@@ -40,27 +41,8 @@ _icon_cache: dict[State, QIcon] = {}
 
 
 def _icon(state: State, size: int = 22) -> QIcon:
-    """BAS three-line mark: top (full, dark orange), middle (75%, mid orange),
-    bottom (full, state-dependent accent)."""
     if state not in _icon_cache:
-        px = QPixmap(size, size)
-        px.fill(QColor("transparent"))
-        p = QPainter(px)
-
-        bar_h = max(3, size * 4 // 22)
-        gap = max(2, size * 3 // 22)
-        mid_w = int(size * 0.75)
-
-        top_y = 0
-        mid_y = bar_h + gap
-        bot_y = (bar_h + gap) * 2
-
-        p.fillRect(0, top_y, size, bar_h, QColor("#BA581C"))
-        p.fillRect(0, mid_y, mid_w, bar_h, QColor("#C9740E"))
-        p.fillRect(0, bot_y, size, bar_h, QColor(_STATE_BOTTOM_COLORS[state]))
-        p.end()
-
-        _icon_cache[state] = QIcon(px)
+        _icon_cache[state] = _bas_icon(size, _STATE_BOTTOM_COLORS[state])
     return _icon_cache[state]
 
 

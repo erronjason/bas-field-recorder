@@ -15,8 +15,11 @@ a = Analysis(
     datas=[
         # Bundle the server script so server_manager can locate it via
         # _app_resource_path() whether frozen or running from source.
-        ("diarized_transcriber_server.py", "."),
-        ("diarized_transcriber.py", "."),
+        ("transcription_server.py", "."),
+        ("transcribe.py", "."),
+        # BAS wordmark SVGs rendered in the setup wizard header.
+        ("docs/BAS-landscape.svg", "docs"),
+        ("docs/BAS-stacked.svg", "docs"),
     ],
     hiddenimports=[
         # PyAudioWPatch ships native DLLs; ensure its package is collected.
@@ -28,6 +31,8 @@ a = Analysis(
         # soundfile uses cffi; ensure the extension is collected.
         "soundfile",
         "_soundfile_data",
+        # SVG rendering for setup wizard header.
+        "PySide6.QtSvg",
     ],
     hookspath=[],
     hooksconfig={},
@@ -63,8 +68,6 @@ a = Analysis(
         "PySide6.QtSpatialAudio",
         "PySide6.QtSql",
         "PySide6.QtStateMachine",
-        "PySide6.QtSvg",
-        "PySide6.QtSvgWidgets",
         "PySide6.QtTest",
         "PySide6.QtVirtualKeyboard",
         "PySide6.QtWebChannel",

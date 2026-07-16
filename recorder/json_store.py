@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -6,14 +7,33 @@ from pathlib import Path
 def create_stub(wav_path: Path, display_name: str, notes: str) -> Path:
     """Write the initial JSON sidecar immediately after recording stops.
 
-    Called before transcription runs.  The transcriber will overwrite this file
+    Called before transcription runs. The transcriber overwrites this file
     with its output; enrich_post_transcription() restores the GUI-managed fields.
     """
     json_path = wav_path.with_suffix(".json")
+
+    duration_seconds = None
+    if wav_path.exists():
+        try:
+            import soundfile as sf
+            duration_seconds = sf.info(str(wav_path)).duration
+        except Exception:
+            pass
+
     data = {
+        "record_id": str(uuid.uuid4()),
+        "format_revision": 1,
         "display_name": display_name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "audio_file": wav_path.name,
+        "source": {
+            "application": "Field Recorder",
+            "meeting_title": None,
+            "call_direction": None,
+            "counterparty": None,
+        },
+        "duration_seconds": duration_seconds,
+        "participants": [],
         "backend": None,
         "speakers_detected": None,
         "speaker_names": {},
@@ -46,15 +66,23 @@ def update_fields(json_path: Path, **fields) -> None:
 def enrich_post_transcription(json_path: Path, saved_gui_fields: dict) -> None:
     """Merge transcriber output with GUI-managed fields after transcription.
 
-    saved_gui_fields should contain the values read from the stub *before*
-    the transcriber overwrote it: display_name, created_at, speaker_names,
-    notes, retain.
+    saved_gui_fields should contain the values read from the stub before
+    the transcriber overwrote it.
     """
     data = load(json_path)
-    # Restore GUI fields, initialising speaker_names if transcriber didn't set it
     gui_defaults = {
+        "record_id": None,
+        "format_revision": 1,
         "display_name": "",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "source": {
+            "application": "Field Recorder",
+            "meeting_title": None,
+            "call_direction": None,
+            "counterparty": None,
+        },
+        "duration_seconds": None,
+        "participants": [],
         "speaker_names": {},
         "notes": "",
         "retain": False,

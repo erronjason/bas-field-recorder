@@ -25,7 +25,7 @@ class NamingDialog(QDialog):
         self._notes = notes
         self._stub_written = False
 
-        self.setWindowTitle("Name this recording")
+        self.setWindowTitle("Name this record")
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
@@ -34,7 +34,7 @@ class NamingDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
-        layout.addWidget(QLabel("Give this recording a name (optional):"))
+        layout.addWidget(QLabel("Record name (optional):"))
 
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("e.g. Site call with Teddy")
@@ -92,7 +92,7 @@ class NamingDialog(QDialog):
     @staticmethod
     def _duration_text(wav_path: Path) -> str:
         if not wav_path.exists():
-            return "Recording is being saved…"
+            return "Saving record…"
         try:
             import soundfile as sf
             info = sf.info(str(wav_path))

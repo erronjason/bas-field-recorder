@@ -36,12 +36,12 @@ class NotesWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        self._header = QLabel("Notes — not recording")
+        self._header = QLabel("Session notes")
         self._header.setStyleSheet("font-weight: bold;")
         layout.addWidget(self._header)
 
         self._editor = QPlainTextEdit()
-        self._editor.setPlaceholderText("Type notes about this call…")
+        self._editor.setPlaceholderText("Session notes.")
         layout.addWidget(self._editor)
 
         btn_row = QHBoxLayout()
@@ -68,7 +68,7 @@ class NotesWindow(QWidget):
         text = self._editor.toPlainText()
         self._flush(text)
         self._notes_path = None
-        self._header.setText("Notes — not recording")
+        self._header.setText("Session notes")
         self.hide()
         return text
 

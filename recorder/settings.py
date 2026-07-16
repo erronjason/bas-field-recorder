@@ -120,7 +120,7 @@ class SettingsWindow(QDialog):
         tabs.addTab(self._make_recording_tab(), "Recording")
         tabs.addTab(self._make_transcription_tab(), "Transcription")
         tabs.addTab(self._make_hotkeys_tab(), "Hotkeys")
-        tabs.addTab(self._make_server_tab(), "Server")
+        tabs.addTab(self._make_server_tab(), "Service")
         tabs.addTab(self._make_data_tab(), "Data")
         layout.addWidget(tabs)
 
@@ -186,8 +186,8 @@ class SettingsWindow(QDialog):
         form.setContentsMargins(12, 12, 12, 12)
 
         self._backend_combo = QComboBox()
-        self._backend_combo.addItem("Local (on-device)", "local")
-        self._backend_combo.addItem("Cloud — AssemblyAI", "cloud")
+        self._backend_combo.addItem("On-device", "local")
+        self._backend_combo.addItem("Off-device — AssemblyAI", "cloud")
         idx = self._backend_combo.findData(self._settings.transcription_backend)
         if idx >= 0:
             self._backend_combo.setCurrentIndex(idx)
@@ -237,9 +237,9 @@ class SettingsWindow(QDialog):
         self._hk_warnings: dict[str, QLabel] = {}
 
         bindings = {
-            "start_stop": ("Start / Stop recording", self._settings.hotkey_start_stop),
-            "pause_resume": ("Pause / Resume recording", self._settings.hotkey_pause_resume),
-            "notes": ("Open Notes panel", self._settings.hotkey_notes),
+            "start_stop": ("Start / Stop capture", self._settings.hotkey_start_stop),
+            "pause_resume": ("Pause / Resume capture", self._settings.hotkey_pause_resume),
+            "notes": ("Open notes panel", self._settings.hotkey_notes),
         }
 
         for action, (label, current) in bindings.items():
@@ -275,7 +275,7 @@ class SettingsWindow(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        group = QGroupBox("Transcription Server")
+        group = QGroupBox("Transcription Service")
         vbox = QVBoxLayout(group)
         vbox.setContentsMargins(12, 12, 12, 12)
 
@@ -292,7 +292,7 @@ class SettingsWindow(QDialog):
         if self._server:
             self._refresh_server_status()
 
-        reinstall_btn = QPushButton("Reinstall Backend…")
+        reinstall_btn = QPushButton("Reinstall transcription service…")
         reinstall_btn.clicked.connect(self._on_reinstall)
         vbox.addWidget(reinstall_btn)
 
@@ -325,7 +325,7 @@ class SettingsWindow(QDialog):
         form = QFormLayout(group)
         form.setContentsMargins(12, 12, 12, 12)
 
-        self._auto_delete_cb = QCheckBox("Auto-delete recordings older than")
+        self._auto_delete_cb = QCheckBox("Retention policy: remove records older than")
         self._auto_delete_cb.setChecked(self._settings.auto_delete_days is not None)
         self._auto_delete_spin = QSpinBox()
         self._auto_delete_spin.setRange(1, 3650)
@@ -341,8 +341,8 @@ class SettingsWindow(QDialog):
         form.addRow(row)
 
         note = QLabel(
-            "Recordings marked 'Keep forever' are never auto-deleted.\n"
-            "Deleted recordings are logged to deletions.log in the data directory."
+            "Records with a retention hold are excluded from the retention policy.\n"
+            "Removed records are logged to deletions.log in the data directory."
         )
         note.setStyleSheet("color: gray; font-size: 11px;")
         note.setWordWrap(True)

@@ -37,8 +37,8 @@ def check_and_recover() -> None:
 
         reply = QMessageBox.question(
             None,
-            "Incomplete recording found",
-            f"A recording from {label} didn't finish saving.\nRecover it?",
+            "Incomplete record found",
+            f"A record from {label} did not finish saving.\nRecover it?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -55,7 +55,7 @@ def _recover(session_dir: Path) -> None:
     from .naming_dialog import NamingDialog
 
     wav_name = session_dir.name + ".flac"
-    wav_path = user_data.workspace() / wav_name
+    wav_path = user_data.records_dir() / wav_name
 
     notes_path = session_dir / "notes.txt"
     notes = (
@@ -68,7 +68,7 @@ def _recover(session_dir: Path) -> None:
         QMessageBox.warning(
             None,
             "Recovery failed",
-            f"Could not recover the recording:\n{exc}",
+            f"Could not recover the record:\n{exc}",
         )
         shutil.rmtree(session_dir, ignore_errors=True)
         return

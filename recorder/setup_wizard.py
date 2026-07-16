@@ -240,6 +240,7 @@ class _InstallWorker(QThread):
 class _StepRow(QWidget):
     def __init__(self, label: str, parent=None) -> None:
         super().__init__(parent)
+        self._label_text = label
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 4)
         layout.setSpacing(2)
@@ -256,20 +257,19 @@ class _StepRow(QWidget):
         layout.addWidget(self._bar)
 
     def set_active(self, description: str) -> None:
-        self._label.setText(f"⏳  {description}")
-        self._label.setStyleSheet("font-size: 12px; color: #0d6efd;")
+        self._label.setText(description)
+        self._label.setStyleSheet("font-size: 12px; color: #C9740E;")
 
     def set_progress(self, pct: int) -> None:
         self._bar.setValue(pct)
 
     def set_done(self) -> None:
+        self._label.setText(self._label_text)
         self._label.setStyleSheet("font-size: 12px; color: #198754;")
-        self._label.setText(self._label.text().replace("⏳", "✓"))
         self._bar.setValue(100)
 
     def set_failed(self) -> None:
-        self._label.setStyleSheet("font-size: 12px; color: #dc3545;")
-        self._label.setText(self._label.text().replace("⏳", "✗"))
+        self._label.setStyleSheet("font-size: 12px; color: #C4392D;")
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ class SetupWizard(QDialog):
         self._use_cuda = use_cuda
         self._worker: Optional[_InstallWorker] = None
 
-        self.setWindowTitle("Diarized Transcriber — First-time Setup")
+        self.setWindowTitle("Field Recorder — Installation")
         self.setMinimumWidth(520)
         self.setModal(True)
 
@@ -308,10 +308,10 @@ class SetupWizard(QDialog):
         layout.setSpacing(14)
 
         intro = QLabel(
-            "<b>Welcome to Diarized Transcriber.</b><br><br>"
-            "First-time setup installs the local transcription engine "
-            "(approx. 3–5 GB including PyTorch and model weights).<br>"
-            "You only need to do this once."
+            "<b>Bureau of Applied Science<br>Field Recorder — Model 1</b><br><br>"
+            "On-device transcription engine — installation procedure.<br>"
+            "Approximately 3–5 GB including PyTorch and model weights.<br>"
+            "A dedicated virtual environment will be created; existing Python required."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -328,7 +328,7 @@ class SetupWizard(QDialog):
         layout.addWidget(self._status_label)
 
         btns = QDialogButtonBox()
-        self._cancel_btn = btns.addButton("Cancel setup", QDialogButtonBox.ButtonRole.RejectRole)
+        self._cancel_btn = btns.addButton("Cancel installation", QDialogButtonBox.ButtonRole.RejectRole)
         self._cancel_btn.clicked.connect(self._on_cancel)
         layout.addWidget(btns)
 
@@ -368,13 +368,13 @@ class SetupWizard(QDialog):
     @Slot(int, str)
     def _on_step_failed(self, idx: int, error: str) -> None:
         self._rows[idx].set_failed()
-        self._status_label.setText(f"Setup failed at step {idx + 1}:\n{error}")
+        self._status_label.setText(f"Installation failed at step {idx + 1}:\n{error}")
         self._status_label.setStyleSheet("font-size: 11px; color: #dc3545;")
         self._cancel_btn.setText("Close")
 
     @Slot()
     def _on_all_done(self) -> None:
-        self._status_label.setText("Setup complete.")
+        self._status_label.setText("Installation complete.")
         self._status_label.setStyleSheet("font-size: 11px; color: #198754;")
         self._cancel_btn.setText("Close")
         self.accept()

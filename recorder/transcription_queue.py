@@ -79,7 +79,7 @@ class TranscriptionQueue(QObject):
 
         body = {
             "audio_path": str(audio_path),
-            "workspace_path": str(user_data.workspace()),
+            "workspace_path": str(user_data.records_dir()),
             "backend": settings.transcription_backend,
             "model": settings.model,
             "language": settings.language or "en",
@@ -115,9 +115,9 @@ class TranscriptionQueue(QObject):
         if job.status == "running":
             reply = QMessageBox.warning(
                 parent_widget,
-                "Cancel transcription?",
+                "Cancel transcription",
                 "Cancelling a running transcription discards all progress.\n"
-                "The recording file is not affected.\n\nCancel anyway?",
+                "The audio file is not affected.\n\nCancel anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -206,7 +206,11 @@ class TranscriptionQueue(QObject):
                 stub_before = json_store.load(json_path)
                 saved_gui_fields = {
                     k: stub_before.get(k)
-                    for k in ("display_name", "created_at", "speaker_names", "notes", "retain")
+                    for k in (
+                        "record_id", "format_revision", "display_name", "created_at",
+                        "source", "duration_seconds", "participants",
+                        "speaker_names", "notes", "retain",
+                    )
                     if k in stub_before
                 }
                 # The server wrote a fresh .json; enrich it with GUI fields

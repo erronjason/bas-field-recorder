@@ -1,4 +1,4 @@
-"""Entry point for the Diarized Transcriber GUI."""
+"""Entry point for the Field Recorder GUI."""
 
 import sys
 
@@ -15,7 +15,7 @@ from recorder.tray import SystemTrayApp
 
 def main() -> None:
     app = QApplication(sys.argv)
-    app.setApplicationName("Diarized Transcriber")
+    app.setApplicationName("Field Recorder")
     app.setQuitOnLastWindowClosed(False)
 
     settings = Settings.load()

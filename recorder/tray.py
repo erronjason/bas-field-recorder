@@ -1,4 +1,4 @@
-"""SystemTrayApp — state machine + Phase 2 wiring."""
+"""SystemTrayApp — Field Recorder state machine."""
 
 from __future__ import annotations
 
@@ -29,32 +29,43 @@ class State(enum.Enum):
     SAVING = "saving"
 
 
-_STATE_COLORS = {
-    State.IDLE: "#6c757d",
-    State.RECORDING: "#dc3545",
-    State.PAUSED: "#fd7e14",
-    State.SAVING: "#0d6efd",
+_STATE_BOTTOM_COLORS = {
+    State.IDLE: "#D4C4B0",
+    State.RECORDING: "#C4392D",
+    State.PAUSED: "#C9740E",
+    State.SAVING: "#4A7FA3",
 }
 
 _icon_cache: dict[State, QIcon] = {}
 
 
 def _icon(state: State, size: int = 22) -> QIcon:
+    """BAS three-line mark: top (full, dark orange), middle (75%, mid orange),
+    bottom (full, state-dependent accent)."""
     if state not in _icon_cache:
         px = QPixmap(size, size)
         px.fill(QColor("transparent"))
         p = QPainter(px)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QColor(_STATE_COLORS[state]))
-        p.setPen(QColor("transparent"))
-        p.drawEllipse(2, 2, size - 4, size - 4)
+
+        bar_h = max(3, size * 4 // 22)
+        gap = max(2, size * 3 // 22)
+        mid_w = int(size * 0.75)
+
+        top_y = 0
+        mid_y = bar_h + gap
+        bot_y = (bar_h + gap) * 2
+
+        p.fillRect(0, top_y, size, bar_h, QColor("#BA581C"))
+        p.fillRect(0, mid_y, mid_w, bar_h, QColor("#C9740E"))
+        p.fillRect(0, bot_y, size, bar_h, QColor(_STATE_BOTTOM_COLORS[state]))
         p.end()
+
         _icon_cache[state] = QIcon(px)
     return _icon_cache[state]
 
 
 class SystemTrayApp(QSystemTrayIcon):
-    """System-tray controller — owns the full Phase 1 + 2 state machine."""
+    """System-tray controller for Field Recorder."""
 
     def __init__(
         self,
@@ -105,7 +116,7 @@ class SystemTrayApp(QSystemTrayIcon):
     def _build_menu(self) -> None:
         menu = QMenu()
 
-        self._act_record = QAction("Start Recording", menu)
+        self._act_record = QAction("Start capture", menu)
         self._act_record.triggered.connect(self._start_recording)
         menu.addAction(self._act_record)
 
@@ -113,29 +124,29 @@ class SystemTrayApp(QSystemTrayIcon):
         self._act_pause.triggered.connect(self._toggle_pause)
         menu.addAction(self._act_pause)
 
-        self._act_stop = QAction("Stop Recording", menu)
+        self._act_stop = QAction("Stop capture", menu)
         self._act_stop.triggered.connect(self._stop_recording)
         menu.addAction(self._act_stop)
 
         menu.addSeparator()
 
-        self._act_notes = QAction("Show Notes", menu)
+        self._act_notes = QAction("Session notes", menu)
         self._act_notes.triggered.connect(self._show_notes)
         menu.addAction(self._act_notes)
 
         menu.addSeparator()
 
-        self._act_pause_queue = QAction("Pause Transcription Queue", menu)
+        self._act_pause_queue = QAction("Pause transcription queue", menu)
         self._act_pause_queue.triggered.connect(self._toggle_queue_pause)
         menu.addAction(self._act_pause_queue)
 
         menu.addSeparator()
 
-        act_workspace = QAction("Open Recordings Folder", menu)
-        act_workspace.triggered.connect(self._open_workspace)
+        act_workspace = QAction("Open records", menu)
+        act_workspace.triggered.connect(self._open_records)
         menu.addAction(act_workspace)
 
-        act_data = QAction("Open Data Directory", menu)
+        act_data = QAction("Open data folder", menu)
         act_data.triggered.connect(self._open_data_dir)
         menu.addAction(act_data)
 
@@ -167,7 +178,7 @@ class SystemTrayApp(QSystemTrayIcon):
         # Queue pause toggle
         q_paused = self._queue.is_paused()
         self._act_pause_queue.setText(
-            "Resume Transcription Queue" if q_paused else "Pause Transcription Queue"
+            "Resume transcription queue" if q_paused else "Pause transcription queue"
         )
         self._act_pause_queue.setEnabled(not is_live)
 
@@ -175,15 +186,15 @@ class SystemTrayApp(QSystemTrayIcon):
         self._refresh_tooltip()
 
     def _refresh_tooltip(self) -> None:
-        parts = ["Diarized Transcriber"]
+        parts = ["Field Recorder"]
 
         active = self._queue.active_count()
         if active:
             paused = " (paused)" if self._queue.is_paused() else ""
-            parts.append(f"Transcribing {active} recording{'s' if active > 1 else ''}{paused}")
+            parts.append(f"Transcribing {active} record{'s' if active > 1 else ''}{paused}")
 
         if not self._server.is_ready():
-            parts.append("Backend: not running")
+            parts.append("Service: not running")
 
         self.setToolTip(" — ".join(parts))
 
@@ -237,8 +248,8 @@ class SystemTrayApp(QSystemTrayIcon):
             self._queue.pause_queue()
         self._refresh()
 
-    def _open_workspace(self) -> None:
-        _reveal_path(user_data.workspace())
+    def _open_records(self) -> None:
+        _reveal_path(user_data.records_dir())
 
     def _open_data_dir(self) -> None:
         _reveal_path(user_data.app_data_root())
@@ -261,8 +272,8 @@ class SystemTrayApp(QSystemTrayIcon):
         if self._state != State.IDLE:
             reply = QMessageBox.question(
                 None,
-                "Recording in progress",
-                "A recording is still in progress.\nQuit anyway? The current recording will be lost.",
+                "Capture in progress",
+                "A capture is in progress.\nQuit anyway? The current capture will be lost.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -280,7 +291,7 @@ class SystemTrayApp(QSystemTrayIcon):
     def _on_recording_started(self) -> None:
         self._state = State.RECORDING
         self._refresh()
-        self.showMessage("Recording", "Recording started.", msecs=2000)
+        self.showMessage("Capture", "Capture started.", msecs=2000)
 
         if self._recorder and self._recorder.tmp_path:
             notes_path = self._recorder.tmp_path / "notes.txt"
@@ -288,7 +299,7 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(Path, str)
     def _on_recording_stopped(self, tmp_path: Path, notes: str) -> None:
-        audio_path = user_data.workspace() / (tmp_path.name + ".flac")
+        audio_path = user_data.records_dir() / (tmp_path.name + ".flac")
 
         self._naming_done = False
         self._mixdown_done = False
@@ -370,7 +381,7 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(str)
     def _on_job_done(self, job_id: str) -> None:
-        self.showMessage("Transcription complete", "Recording transcribed.", msecs=3000)
+        self.showMessage("Transcription complete", "Record transcribed.", msecs=3000)
         self._refresh_tooltip()
 
     @Slot(str, str)
@@ -398,7 +409,7 @@ class SystemTrayApp(QSystemTrayIcon):
             self._settings.hotkey_notes,
         )
         if conflicts:
-            names = {"start_stop": "Start/Stop", "pause_resume": "Pause/Resume", "notes": "Notes"}
+            names = {"start_stop": "Start/Stop capture", "pause_resume": "Pause/Resume capture", "notes": "Notes"}
             msg = "\n".join(f"  {names[a]}: {s}" for a, s in conflicts.items())
             self.showMessage(
                 "Hotkey conflict",
@@ -461,7 +472,7 @@ class SystemTrayApp(QSystemTrayIcon):
         return self._backend.get_default_loopback()
 
     def _alert(self, msg: str) -> None:
-        QMessageBox.critical(None, "Diarized Transcriber", msg)
+        QMessageBox.critical(None, "Field Recorder", msg)
 
 
 # ---------------------------------------------------------------------------

@@ -104,8 +104,43 @@ def _fmt_date(iso: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Elided label
+# ---------------------------------------------------------------------------
+
+class _ElidedLabel(QLabel):
+    """QLabel that elides overflowing text instead of clipping it."""
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(parent)
+        self._full = text
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+    def setText(self, text: str) -> None:  # type: ignore[override]
+        self._full = text
+        self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        w = self.width()
+        if w < 1:
+            return
+        elided = self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, w)
+        super().setText(elided)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+
+# ---------------------------------------------------------------------------
 # Row widget
 # ---------------------------------------------------------------------------
+
+_ROW_HEIGHT = 54   # fixed item height; avoids pre-QSS sizeHint underestimate
+
 
 class _RecordRow(QWidget):
     def __init__(self, row: _RowData, parent=None) -> None:
@@ -129,7 +164,7 @@ class _RecordRow(QWidget):
         text_col.setSpacing(2)
         text_col.setContentsMargins(0, 0, 0, 0)
 
-        self._name_lbl = QLabel(row.display_name)
+        self._name_lbl = _ElidedLabel(row.display_name)
         self._name_lbl.setProperty("role", "record-name")
         text_col.addWidget(self._name_lbl)
 
@@ -275,7 +310,7 @@ class RecordingList(QWidget):
         for row in rows:
             item = QListWidgetItem()
             widget = _RecordRow(row)
-            item.setSizeHint(widget.sizeHint())
+            item.setSizeHint(QSize(0, _ROW_HEIGHT))
             item.setData(Qt.ItemDataRole.UserRole, row.record_id)
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)

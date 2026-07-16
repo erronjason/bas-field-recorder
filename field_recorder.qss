@@ -732,3 +732,38 @@ QLabel[role="step-label"][state="done"] {
 QLabel[role="step-label"][state="error"] {
     color: #C4432B;
 }
+
+/* ---------- Recording list rows ----------------------------
+   _RecordRow in recording_list.py. Status rule colors are
+   state-driven via setProperty("state", ...) + unpolish/polish.
+   ----------------------------------------------------------- */
+
+QFrame[role="status-rule"] {
+    background-color: #6E665C;
+    border: none;
+}
+QFrame[role="status-rule"][state="transcribed"] {
+    background-color: #E2761B;
+}
+QFrame[role="status-rule"][state="error"] {
+    background-color: #C4432B;
+}
+
+QLabel[role="record-name"] {
+    font-size: 13px;
+    color: #EDE7DE;
+    padding: 0;
+}
+
+QLabel[role="record-meta"] {
+    font-size: 11px;
+    color: #A39B90;
+    padding: 0;
+}
+
+QLabel[role="record-duration"] {
+    font-family: "Consolas";
+    font-size: 11px;
+    color: #A39B90;
+    padding: 0;
+}

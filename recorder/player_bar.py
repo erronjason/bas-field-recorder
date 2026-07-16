@@ -49,7 +49,7 @@ class PlayerBar(QWidget):
         layout.setSpacing(8)
 
         self._play_btn = QPushButton("Play")
-        self._play_btn.setFixedWidth(52)
+        self._play_btn.setFixedWidth(64)
         self._play_btn.setEnabled(False)
         self._play_btn.clicked.connect(self.toggle)
         layout.addWidget(self._play_btn)

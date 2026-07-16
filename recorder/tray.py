@@ -6,7 +6,7 @@ import enum
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction, QIcon
@@ -21,6 +21,9 @@ from .notes_window import NotesWindow
 from .server_manager import ServerManager
 from .settings import Settings, SettingsWindow
 from .transcription_queue import TranscriptionQueue
+
+if TYPE_CHECKING:
+    from .recordings_window import RecordingsWindow
 
 
 class State(enum.Enum):
@@ -47,6 +50,7 @@ class SystemTrayApp(QSystemTrayIcon):
         server: ServerManager,
         queue: TranscriptionQueue,
         hotkeys: HotkeyManager,
+        recordings_window: Optional["RecordingsWindow"] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -64,6 +68,7 @@ class SystemTrayApp(QSystemTrayIcon):
         self._server = server
         self._queue = queue
         self._hotkeys = hotkeys
+        self._recordings_window = recordings_window
 
         # Hotkey signals → recording actions
         self._hotkeys.start_stop_triggered.connect(self._hotkey_start_stop)
@@ -224,7 +229,12 @@ class SystemTrayApp(QSystemTrayIcon):
         self._refresh()
 
     def _open_records(self) -> None:
-        _reveal_path(user_data.records_dir())
+        if self._recordings_window is not None:
+            self._recordings_window.show()
+            self._recordings_window.raise_()
+            self._recordings_window.activateWindow()
+        else:
+            _reveal_path(user_data.records_dir())
 
     def _open_data_dir(self) -> None:
         _reveal_path(user_data.app_data_root())

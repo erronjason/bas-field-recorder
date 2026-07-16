@@ -12,17 +12,29 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 
 def _draw_mark(size: int, top: str, mid: str, bot: str) -> QIcon:
-    """Render the BAS three-bar mark at the given size with explicit bar colors."""
+    """Render the BAS three-bar mark at the given size with explicit bar colors.
+
+    Geometry mirrors docs/bas-icon.svg (32×32 reference):
+      top bar:    y=0,    h=10, full width
+      middle bar: y=11.5, h=9,  75% width
+      bottom bar: y=22,   h=10, full width
+    Bars fill the full canvas height — no vertical padding or centering.
+    """
     px = QPixmap(size, size)
     px.fill(QColor("transparent"))
     p = QPainter(px)
-    bar_h = max(2, size * 2 // 22)
-    gap   = max(3, size * 3 // 22)
-    mid_w = int(size * 0.75)
-    y0 = (size - 3 * bar_h - 2 * gap) // 2
-    p.fillRect(0, y0,                  size,  bar_h, QColor(top))
-    p.fillRect(0, y0 + bar_h + gap,   mid_w, bar_h, QColor(mid))
-    p.fillRect(0, y0 + 2*(bar_h+gap), size,  bar_h, QColor(bot))
+
+    top_h = max(1, round(size * 10 / 32))
+    gap   = max(1, round(size * 1.5 / 32))
+    bot_h = top_h
+    mid_h = max(1, size - 2 * top_h - 2 * gap)
+    mid_w = size * 3 // 4
+    y_mid = top_h + gap
+    y_bot = y_mid + mid_h + gap
+
+    p.fillRect(0, 0,     size,  top_h, QColor(top))
+    p.fillRect(0, y_mid, mid_w, mid_h, QColor(mid))
+    p.fillRect(0, y_bot, size,  bot_h, QColor(bot))
     p.end()
     return QIcon(px)
 

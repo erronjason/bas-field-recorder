@@ -193,9 +193,6 @@ class RecordingDetail(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
         toolbar.setSpacing(4)
-        self._btn_play = QPushButton("Play")
-        self._btn_play.clicked.connect(self._on_play)
-        toolbar.addWidget(self._btn_play)
         self._btn_speakers = QPushButton("Identify speakers")
         self._btn_speakers.clicked.connect(self._on_identify_speakers)
         toolbar.addWidget(self._btn_speakers)
@@ -364,9 +361,6 @@ class RecordingDetail(QWidget):
     # ------------------------------------------------------------------
     # Toolbar actions
     # ------------------------------------------------------------------
-
-    def _on_play(self) -> None:
-        self._player_bar.toggle()
 
     def _on_identify_speakers(self) -> None:
         if not self._json_path:
@@ -540,10 +534,10 @@ class RecordingDetail(QWidget):
 # ---------------------------------------------------------------------------
 
 def _reveal_path(path: Path) -> None:
-    import os
     import subprocess
     if sys.platform == "win32":
-        os.startfile(str(path.parent))
+        # explorer /select, selects the file in the window; exit 1 on success — don't check
+        subprocess.Popen(["explorer", "/select,", str(path)])
     elif sys.platform == "darwin":
         subprocess.Popen(["open", "-R", str(path)])
     else:

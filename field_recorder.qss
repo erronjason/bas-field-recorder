@@ -767,3 +767,37 @@ QLabel[role="record-duration"] {
     color: #A39B90;
     padding: 0;
 }
+
+/* ---------- Recording detail panel -------------------------
+   RecordingDetail in recording_detail.py.
+   ----------------------------------------------------------- */
+
+QLabel[role="record-title"] {
+    font-size: 16px;
+    font-weight: 600;
+    color: #EDE7DE;
+    padding: 0;
+}
+
+QLabel[role="empty-state"] {
+    font-size: 13px;
+    color: #6E665C;
+    padding: 0;
+}
+
+QPushButton[role="mode-toggle"] {
+    border-color: transparent;
+    color: #A39B90;
+    font-size: 11px;
+    min-height: 20px;
+    padding: 0 6px;
+}
+QPushButton[role="mode-toggle"]:hover {
+    color: #EDE7DE;
+    border-color: #2E2A25;
+}
+
+QPushButton[role="hold-btn"][active="true"] {
+    border-color: #E2761B;
+    color: #E2761B;
+}

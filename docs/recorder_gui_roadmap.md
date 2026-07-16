@@ -2,7 +2,13 @@
 
 ## Overview
 
-`recorder_gui` is a standalone system tray application that records both sides of any call (microphone + system audio), integrates with the existing `diarized_transcriber.py` pipeline, and surfaces a full recording management UI: playback, speaker naming, timestamped transcripts, live notes, and a browseable history. Initial target is Windows; the architecture is designed to extend to macOS and Linux without changing any GUI code.
+`recorder_gui` is a self-contained Windows application (distributable `.exe`) that:
+- Records both sides of any call (microphone + system audio) via WASAPI loopback
+- Manages a local transcription server process — starting, monitoring, and stopping it automatically
+- Bootstraps the full transcription backend on first launch (no separate installer)
+- Surfaces a full recording management UI: playback, speaker naming, timestamped transcripts, live notes, and a browseable history
+
+Initial target is Windows. The GUI code is platform-neutral and designed to extend to macOS and Linux in Phase 4 by swapping only the audio backend.
 
 ---
 
@@ -10,23 +16,32 @@
 
 | Goal | Phase |
 |---|---|
-| Record mic + system audio from any call app (Zoom, Teams, Meet, etc.) | 1 |
+| Record mic + system audio from any call app | 1 |
 | Pause and resume recording mid-call | 1 |
-| Take live notes during a recording | 1 |
+| Live notes panel during recording | 1 |
+| Stream audio chunks to disk (not memory) — safe for long calls | 1 |
+| Crash recovery — detect and offer to recover orphaned temp recordings | 1 |
+| User data in AppData — safe for packaged `.exe` | 1 |
+| Prompt for recording display name on stop (skippable) | 1 |
 | System tray presence — minimal footprint, always accessible | 1 |
-| Output recordings directly to `workspace/` | 1 |
-| Distributable Windows `.exe` binary | 1 |
+| First-run setup wizard — bootstrap Python venv + models in-app | 2 |
+| Start / monitor / stop transcription server process from GUI | 2 |
+| Transcription queue with Pause Queue and per-job Cancel | 2 |
 | Auto-transcribe after recording stops | 2 |
-| Persist live notes and initialize speaker name map in JSON after transcription | 2 |
-| In-tray status while transcription runs | 2 |
-| Settings window (model, language, backend, devices) | 2 |
-| Recording list with per-recording detail panel | 3 |
-| Transcribe / Retranscribe per recording | 3 |
-| Name speakers (map SPEAKER_XX → real names, re-render transcript) | 3 |
+| Global hotkeys (start / pause / stop) with conflict detection | 2 |
+| Cloud transcription consent dialog (one-time, stored) | 2 |
+| Settings window (devices, model, language, backend, hotkeys) | 2 |
+| Distributable Windows `.exe` binary | 2 |
+| Recording list + per-recording detail panel | 3 |
 | Audio playback with seek | 3 |
-| Transcript view toggle: reading mode vs. timestamped-segment mode | 3 |
+| Transcribe / Retranscribe per recording | 3 |
+| Name speakers (map SPEAKER_XX → real names) | 3 |
+| Transcript view toggle: reading mode vs. timestamp mode | 3 |
 | Copy full transcript to clipboard | 3 |
-| Edit notes per recording (post-call) | 3 |
+| Edit notes post-call | 3 |
+| Reveal file in Explorer / Open data directory | 3 |
+| Per-recording "Keep forever" override for auto-delete | 3 |
+| Auto-delete after N days (disabled by default) | 3 |
 | macOS and Linux audio backend support | 4 |
 
 ---
@@ -37,21 +52,58 @@
 
 | Layer | Technology | Rationale |
 |---|---|---|
-| GUI + system tray | PySide6 (Qt 6, LGPL) | `QSystemTrayIcon` built in; identical code on all platforms; full widget toolkit for detail panel |
-| Audio playback | `PySide6.QtMultimedia` | `QMediaPlayer` plays WAV natively on Windows via Windows Media Foundation; included in PySide6 package |
-| Audio capture — Windows | PyAudioWPatch 0.2.12.8 | WASAPI loopback + mic; Jan 2026 release; purpose-built for this |
-| Audio capture — macOS (Phase 4) | SoundCard via CoreAudio | `include_loopback=True`; requires Screen & System Audio Recording TCC grant |
-| Audio capture — Linux (Phase 4) | SoundCard via PulseAudio/PipeWire | Monitor source loopback, no special permissions needed |
-| Audio mixing | NumPy + SciPy | `resample_poly` for post-capture resampling; NumPy already in tree via whisperX |
-| Binary packaging | PyInstaller | Battle-tested; Nuitka's compile time is impractical with PyTorch in the dependency tree |
-| Transcription | `diarized_transcriber.py` (existing) | Invoked as `QProcess` subprocess; CLI stays independently usable |
+| GUI + system tray | PySide6 (Qt 6, LGPL) | `QSystemTrayIcon` built in; identical code on all platforms; full widget toolkit |
+| Audio playback | `PySide6.QtMultimedia` | `QMediaPlayer` plays WAV natively via Windows Media Foundation |
+| Audio capture — Windows | PyAudioWPatch 0.2.12.8 | WASAPI loopback + mic; purpose-built; Jan 2026 release |
+| Audio capture — macOS (Phase 4) | SoundCard via CoreAudio | `include_loopback=True`; requires TCC grant |
+| Audio capture — Linux (Phase 4) | SoundCard via PulseAudio/PipeWire | Monitor source loopback |
+| Audio mixing | NumPy + SciPy | `resample_poly` for post-capture resampling; already in tree via whisperX |
+| Transcription API | FastAPI (local REST server) | Thin HTTP wrapper around `diarized_transcriber.py`; managed by GUI |
+| HTTP client | `httpx` or `urllib` (stdlib) | GUI talks to transcription server on localhost |
+| Binary packaging | PyInstaller | Build as `--onedir`; GUI binary is the sole distributable artifact |
+| Backend venv | Embedded Python + pip | GUI bootstraps backend on first run; stored in `AppData\DiarizedTranscriber\backend\` |
 
-### JSON schema extension
+### User data layout
 
-`diarized_transcriber.py` produces the base JSON. The GUI **enriches** it in-place after transcription by adding two optional top-level fields if absent. Neither field requires changes to `diarized_transcriber.py`.
+All runtime data lives under a platform-appropriate user data root. The GUI resolves this at startup:
+
+```
+Windows:   %APPDATA%\DiarizedTranscriber\
+macOS:     ~/Library/Application Support/DiarizedTranscriber/
+Linux:     ~/.local/share/DiarizedTranscriber/
+```
+
+Structure:
+```
+DiarizedTranscriber/
+├── workspace/               # recordings, JSON sidecars, TXT transcripts
+│   ├── recording_20260715_143201.wav
+│   ├── recording_20260715_143201.json
+│   └── recording_20260715_143201.txt
+├── tmp/                     # in-progress recording chunks (crash recovery)
+│   └── recording_20260715_143201/
+│       ├── mic.raw          # raw int16 PCM, native sample rate
+│       ├── mic.meta         # JSON: sample_rate, channels
+│       ├── loopback.raw
+│       ├── loopback.meta
+│       └── notes.txt        # live notes written periodically
+├── backend/                 # managed Python venv for transcription server
+│   ├── python/              # embedded Python distribution
+│   └── venv/                # pip-installed whisperX, PyTorch, pyannote, FastAPI
+├── models/                  # downloaded Whisper + pyannote model weights
+└── settings.json            # app settings (devices, model, hotkeys, retention, etc.)
+```
+
+`workspace/` is user-visible and intentionally accessible. The **Open Data Directory** button opens it directly. **Reveal File** opens Explorer with the specific file selected.
+
+### JSON schema
+
+`diarized_transcriber.py` produces the base segment data. The GUI enriches the JSON in-place. All GUI-managed fields are initialized when the recording stops (before transcription runs).
 
 ```json
 {
+  "display_name": "Site call with Teddy",
+  "created_at": "2026-07-15T14:32:01",
   "backend": "local",
   "audio_file": "recording_20260715_143201.wav",
   "speakers_detected": 2,
@@ -59,47 +111,119 @@
     "SPEAKER_00": "Jason",
     "SPEAKER_01": "Teddy"
   },
-  "notes": "Key points:\n- Follow up on budget by Friday\n- Teddy to send revised proposal",
+  "notes": "Key points:\n- Follow up on budget by Friday",
+  "retain": false,
   "segments": [
     { "speaker": "SPEAKER_00", "start": 0.00, "end": 4.12, "text": "Hey, good to connect." }
   ]
 }
 ```
 
-- `speaker_names` — initialized to `{}` by the GUI after first transcription. Updated when the user names speakers.
-- `notes` — initialized to `""`. Written from the live notes panel on recording stop; editable post-call in the detail panel.
-- Existing JSON files without these fields are backward-compatible — the GUI treats absent fields as empty.
+GUI-owned fields (never written by `diarized_transcriber.py`):
+- `display_name` — set at recording stop prompt; editable in detail panel
+- `created_at` — ISO timestamp set at recording stop
+- `speaker_names` — populated via speaker naming dialog post-transcription
+- `notes` — from live notes panel; editable post-call
+- `retain` — per-recording auto-delete override; default `false`
 
-The `.txt` rendering layer reads `speaker_names` and substitutes real names if present: `SPEAKER_00` → `Jason`.
+`diarized_transcriber.py` is unchanged — it writes `backend`, `audio_file`, `speakers_detected`, and `segments`. The GUI enriches the file before and after transcription.
 
 ### Process model
 
 ```
-recorder_gui.py
+recorder_gui.exe  (GUI — master process)
+ ├── Manages lifecycle of → diarized_transcriber_server.py (FastAPI — child process)
+ │    └── Runs inside backend/venv/; started on GUI launch; stopped on GUI quit
  ├── QApplication
  ├── SystemTrayApp (QSystemTrayIcon)
- │    ├── RecorderThread (QThread — PyAudioWPatch two-stream capture)
- │    ├── NotesWindow (QWidget — floating, shown during RECORDING/PAUSED)
- │    ├── TranscriberWorker (QProcess — wraps diarized_transcriber.py)
+ │    ├── RecorderThread (QThread — disk-streaming audio capture)
+ │    ├── NotesWindow (QWidget — floating notes panel during recording)
+ │    ├── TranscriptionQueue (manages HTTP POSTs to local server)
  │    └── SettingsWindow (QDialog)
  └── RecordingsWindow (QMainWindow)
-      ├── RecordingListPanel (QTableWidget — left)
-      └── RecordingDetailPanel (QWidget — right)
-           ├── PlayerBar (QMediaPlayer + QSlider + time labels)
-           ├── ActionToolbar (Transcribe, Retranscribe, Name Speakers, Copy, Delete)
-           ├── TranscriptView (QPlainTextEdit — toggles between modes)
-           └── NotesPanel (QPlainTextEdit — editable, saved to JSON)
+      ├── RecordingListPanel (QTableWidget)
+      └── RecordingDetailPanel
+           ├── PlayerBar (QMediaPlayer + QSlider)
+           ├── ActionToolbar
+           ├── TranscriptView (QPlainTextEdit, two modes)
+           └── NotesPanel (QPlainTextEdit, editable)
 ```
 
-### Recording state machine
+**Server lifecycle:**
+1. GUI starts → check health endpoint `GET http://localhost:7777/health`
+2. If unhealthy: launch `backend/venv/python diarized_transcriber_server.py --port 7777` as `QProcess`
+3. Poll health every 2 seconds until ready (max 30 seconds; show "Starting backend…" in tray tooltip)
+4. If port 7777 is taken: try 7778–7780; store chosen port in `settings.json`
+5. GUI quit → send `POST /shutdown` to server, then terminate the `QProcess` if it doesn't exit within 5 seconds
+
+**Server health indicator:** Small colored dot in the Settings window header and optionally in the tray tooltip. Green = ready, yellow = starting, red = error.
+
+### Audio recording model (disk streaming)
+
+Audio is **never held entirely in memory**. Chunks are written to disk as they arrive.
+
+On recording start, create `tmp/recording_YYYYMMDD_HHMMSS/`:
+- Open `mic.raw` and `loopback.raw` in binary append mode (`'ab'`)
+- Open `notes.txt` for periodic autosave of the notes panel contents
+
+Each stream callback appends its chunk to the respective `.raw` file immediately. Pause is implemented by setting a `_paused` flag; callbacks return without writing during pause (streams stay open). On resume, writing resumes to the same files — the pause gap is simply absent from the recording.
+
+On stop:
+1. Close both `.raw` files
+2. Read `mic.meta` and `loopback.meta` for sample rate / channel info
+3. `np.fromfile('mic.raw', dtype=np.int16)` → resample to 16 kHz mono
+4. `np.fromfile('loopback.raw', dtype=np.int16)` → downmix to mono → resample to 16 kHz
+5. Mix, clip, write final WAV to `workspace/`
+6. Delete the `tmp/recording_.../` directory on success
+
+**Maximum RAM use during recording:** one write buffer per callback chunk (typically 512–4096 bytes). A 3-hour call uses negligible memory regardless of length.
+
+### Crash recovery
+
+On every launch, before entering the main event loop:
+
+1. Scan `tmp/` for any directories matching `recording_*/`
+2. For each found: read `mic.meta` to confirm it's a valid partial recording
+3. Show a non-blocking tray notification (or modal if multiple found):
+   > "Incomplete recording found from Jul 15 at 2:32 PM. Recover it?"  
+   > **[Recover]** **[Discard]**
+4. Recover: run the same mixdown pipeline on the raw files → save to `workspace/`
+5. Discard: delete the `tmp/recording_.../` directory
+
+Notes captured before the crash are in `tmp/recording_.../notes.txt` and are recovered alongside the audio.
+
+### First-run setup wizard
+
+On first launch (no `backend/venv/` present), show `SetupWizard` before the tray app starts:
 
 ```
-              ┌─────────────────────┐
-              ▼                     │
-  IDLE ──► RECORDING ──► PAUSED ───┘
+Step 1 — Downloading Python runtime     [████████░░] 60%
+Step 2 — Installing transcription stack [░░░░░░░░░░]  0%
+Step 3 — Downloading Whisper model      [░░░░░░░░░░]  0%
+
+This downloads approximately 3–5 GB. You only do this once.
+                                              [Cancel]
+```
+
+Steps:
+1. Extract an embedded minimal Python distribution (bundled in the PyInstaller package as a data file — the embeddable Python zip from python.org, ~20 MB) into `backend/python/`
+2. Use it to create a venv at `backend/venv/`
+3. `pip install` into the venv: `whisperx pyannote.audio fastapi uvicorn torch torchaudio --index-url https://download.pytorch.org/whl/cu124` (CUDA build) or CPU fallback
+4. Pre-download the configured Whisper model into `models/`
+5. Write a `backend/version.json` with installed versions for update checks
+
+The wizard can be re-run from **Settings → Transcription → Reinstall Backend**. On success, the app continues to the normal tray entry point. On cancel, the app starts in recording-only mode (no transcription until setup completes).
+
+---
+
+## Recording state machine
+
+```
+              ┌───────────────────────┐
+              ▼                       │
+  IDLE ──► RECORDING ──► PAUSED ─────┘
               │               │
-              └───────────────┴──► SAVING ──► IDLE
-                    (stop from either state)
+              └───────────────┴──► SAVING ──► NAMING ──► IDLE
 ```
 
 | State | Tray icon | Tooltip |
@@ -108,23 +232,8 @@ recorder_gui.py
 | RECORDING | Red circle | "Recording… 00:02:34" |
 | PAUSED | Orange circle | "Paused — 00:02:34" |
 | SAVING | Orange pulse | "Saving recording…" |
-| TRANSCRIBING | Spinner | "Transcribing… recording_….wav" |
-
-### Audio recording model
-
-Two PyAudioWPatch callback streams run concurrently in `RecorderThread`:
-
-1. **Microphone** — default WASAPI input, captured at device native rate (often 44.1 or 48 kHz), 1 channel
-2. **Loopback** — `get_default_wasapi_loopback()`, captured at device native rate (typically 48 kHz), 2 channels
-
-Both streams append chunks to separate in-memory `bytearray` buffers. On pause, a `_paused` flag causes callbacks to discard incoming chunks (streams stay open to avoid re-init latency on resume). On stop:
-
-1. `np.frombuffer(..., dtype=np.int16).astype(np.float32) / 32768.0` for each buffer
-2. Downmix loopback to mono: `loopback = loopback.reshape(-1, channels).mean(axis=1)`
-3. `scipy.signal.resample_poly` — resample both to 16 kHz
-4. Truncate to shortest, mix: `mixed = np.clip((mic + loopback) * 0.5, -1.0, 1.0)`
-5. Write 16-bit PCM WAV via `wave` module to `workspace/recording_YYYYMMDD_HHMMSS.wav`
-6. Emit `stopped(wav_path, notes_text)`
+| NAMING | Orange pulse | "Saving recording…" (dialog open) |
+| TRANSCRIBING (queue) | Spinner | "Transcribing 2 recordings…" |
 
 ---
 
@@ -133,6 +242,7 @@ Both streams append chunks to separate in-memory `bytearray` buffers. On pause, 
 ```
 diarized_transcriber/
 ├── diarized_transcriber.py           # existing CLI transcriber (unchanged)
+├── diarized_transcriber_server.py    # NEW — FastAPI wrapper (thin HTTP layer)
 ├── recorder_gui.py                   # entry point for the tray app
 ├── recorder/
 │   ├── __init__.py
@@ -142,27 +252,29 @@ diarized_transcriber/
 │   │   ├── wasapi.py                 # Windows (Phase 1)
 │   │   ├── coreaudio.py              # macOS (Phase 4)
 │   │   └── pulseaudio.py             # Linux (Phase 4)
-│   ├── transcriber_worker.py         # QProcess wrapper for diarized_transcriber.py
+│   ├── server_manager.py             # starts/stops/monitors the FastAPI server process
+│   ├── transcription_queue.py        # queue logic, HTTP client, Pause Queue / Cancel
+│   ├── setup_wizard.py               # first-run backend bootstrap UI
+│   ├── crash_recovery.py             # detects and recovers orphaned tmp/ recordings
 │   ├── json_store.py                 # read/write/enrich JSON sidecars
+│   ├── user_data.py                  # resolves AppData path; single source of truth
+│   ├── hotkeys.py                    # Win32 RegisterHotKey wrapper + conflict detection
 │   ├── tray.py                       # SystemTrayApp + state machine
 │   ├── notes_window.py               # floating notes panel (during recording)
+│   ├── naming_dialog.py              # post-stop display name prompt
 │   ├── settings.py                   # SettingsWindow (QDialog)
 │   ├── recordings_window.py          # RecordingsWindow (QMainWindow)
 │   ├── recording_list.py             # RecordingListPanel (QTableWidget)
 │   ├── recording_detail.py           # RecordingDetailPanel
-│   ├── player_bar.py                 # PlayerBar (QMediaPlayer + controls)
-│   ├── speaker_dialog.py             # SpeakerNameDialog (QDialog)
+│   ├── player_bar.py                 # QMediaPlayer + controls
+│   ├── speaker_dialog.py             # SpeakerNameDialog
 │   └── resources/
-│       ├── icon_idle.png             # 64×64
-│       ├── icon_recording.png        # 64×64, red circle
-│       ├── icon_paused.png           # 64×64, orange circle
-│       └── icon_transcribing.png     # 64×64, orange animated
+│       ├── icon_idle.png
+│       ├── icon_recording.png
+│       ├── icon_paused.png
+│       └── icon_transcribing.png
 ├── recorder_gui.spec                 # PyInstaller spec
-├── build.ps1                         # enforces correct PyInstaller invocation dir
-├── workspace/                        # audio I/O (gitignored)
-├── docs/
-│   ├── npu_backend_prd.md
-│   └── recorder_gui_roadmap.md
+├── build.ps1                         # enforces correct invocation dir; builds .exe
 └── requirements.txt
 ```
 
@@ -170,410 +282,456 @@ diarized_transcriber/
 
 ## Phase 1 — Windows System Tray Recorder (MVP)
 
-**Deliverable:** A packaged Windows `.exe` that lives in the system tray, records both sides of a call with pause/resume, captures live notes, and saves a WAV + notes to `workspace/`.
+**Deliverable:** A working tray app that records (with pause), takes live notes, streams audio to disk, handles crashes, prompts for a name on stop, and saves clean WAV files to the user data directory.
 
-### 1.1 — Project scaffolding
+### 1.1 — User data module (`recorder/user_data.py`)
 
-- Create `recorder/` package and all stub files listed above
-- Create `recorder/backends/` with `wasapi.py` stub
-- Create `recorder_gui.py` entry point
-- Create `recorder_gui.spec` and `build.ps1`
-- Add Phase 1 deps to `requirements.txt`
+Single source of truth for all file paths. **Every other module imports from here — never construct paths inline.**
 
-### 1.2 — Tray icon and menu (`recorder/tray.py`)
+```python
+import os, sys
+from pathlib import Path
 
-```
-Menu (IDLE):
-  ● Diarized Transcriber  v0.1        [disabled]
-  ─────────────────────────────────
-  ⏺  Start Recording
-  ─────────────────────────────────
-  ⚙  Settings...
-  📋  View Recordings...
-  ─────────────────────────────────
-  Quit
+def app_data_root() -> Path:
+    if sys.platform == "win32":
+        return Path(os.environ["APPDATA"]) / "DiarizedTranscriber"
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "DiarizedTranscriber"
+    else:
+        return Path.home() / ".local" / "share" / "DiarizedTranscriber"
 
-Menu (RECORDING):
-  ● Diarized Transcriber — 00:02:34   [disabled, live timer]
-  ─────────────────────────────────
-  ⏸  Pause
-  ⏹  Stop
-  📝  Notes...
-  ─────────────────────────────────
-  ⚙  Settings...
-  📋  View Recordings...
-  ─────────────────────────────────
-  Quit
-
-Menu (PAUSED):
-  ● Diarized Transcriber — Paused     [disabled]
-  ─────────────────────────────────
-  ▶  Resume
-  ⏹  Stop
-  📝  Notes...
-  ─────────────────────────────────
-  ⚙  Settings...
-  📋  View Recordings...
-  ─────────────────────────────────
-  Quit
+def workspace()  -> Path: return app_data_root() / "workspace"
+def tmp_dir()    -> Path: return app_data_root() / "tmp"
+def backend_dir()-> Path: return app_data_root() / "backend"
+def models_dir() -> Path: return app_data_root() / "models"
+def settings_path()->Path:return app_data_root() / "settings.json"
 ```
 
-Live timer: `QTimer` fires every second in RECORDING state, incrementing elapsed display. Paused state freezes the counter.
+Create all directories on first import: `path.mkdir(parents=True, exist_ok=True)`.
 
-Key Qt requirement: `QApplication.setQuitOnLastWindowClosed(False)` — prevents app exit when Notes or Settings window closes.
+### 1.2 — JSON store (`recorder/json_store.py`)
+
+```python
+def create_stub(wav_path, display_name, notes) -> Path:
+    """Write the initial JSON sidecar immediately after recording stops."""
+
+def load(json_path: Path) -> dict: ...
+def save(json_path: Path, data: dict) -> None: ...
+def enrich_post_transcription(json_path: Path) -> None:
+    """Add speaker_names: {} if absent; preserve existing notes and retain."""
+```
+
+`create_stub` writes the JSON with `display_name`, `created_at`, `notes`, `retain: false`, and `segments: []`. After transcription, `enrich_post_transcription` merges the transcriber's output into the existing stub without overwriting GUI-managed fields.
 
 ### 1.3 — Audio capture (`recorder/audio.py`, `recorder/backends/wasapi.py`)
 
-`AudioBackend` ABC (forward-compatible with Phase 4):
+`AudioBackend` ABC (unchanged from previous design). `RecorderThread(QThread)` changes:
+
+- On `run()`: create `tmp/recording_YYYYMMDD_HHMMSS/`, write `.meta` files, open `.raw` files in `'ab'` mode
+- Callbacks write chunks directly: `self._mic_file.write(in_data)`
+- Pause flag: callbacks check `self._paused` and skip writing without closing files
+- On stop: close files, emit `recording_stopped(tmp_dir: Path, notes: str)`
+- `SystemTrayApp` triggers mixdown in a `QThreadPool` worker after `recording_stopped`
+
+Mixdown worker signals: `mixdown_complete(wav_path: Path)` → triggers naming dialog.
+
+### 1.4 — Crash recovery (`recorder/crash_recovery.py`)
+
+Called from `recorder_gui.py` before the tray app's event loop starts:
 
 ```python
-class AudioBackend(ABC):
-    @abstractmethod
-    def get_default_mic(self) -> dict: ...
-
-    @abstractmethod
-    def get_default_loopback(self) -> dict: ...
-
-    @abstractmethod
-    def open_streams(self, mic_info, loopback_info,
-                     mic_cb, loopback_cb) -> tuple[Any, Any]: ...
-
-    @abstractmethod
-    def close_streams(self, mic_stream, loopback_stream) -> None: ...
+def check_and_recover(parent_widget) -> None:
+    orphans = list(user_data.tmp_dir().glob("recording_*/mic.meta"))
+    for meta_path in orphans:
+        tmp_path = meta_path.parent
+        created = _parse_timestamp(tmp_path.name)
+        reply = QMessageBox.question(
+            parent_widget,
+            "Incomplete recording found",
+            f"A recording from {created:%b %d at %I:%M %p} didn't finish saving.\n"
+            f"Recover it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            _recover(tmp_path)
+        else:
+            shutil.rmtree(tmp_path)
 ```
 
-`RecorderThread(QThread)` signals:
-- `recording_started` — both streams open
-- `recording_stopped(wav_path: str, notes: str)` — WAV written, notes text passed along
-- `level_update(mic_db: float, loopback_db: float)` — for future VU meter
-- `error(message: str)`
+`_recover(tmp_path)` runs the same mixdown pipeline as a normal stop, saves to `workspace/`, then shows the naming dialog for the recovered recording.
 
-Pause is implemented by setting `self._paused = True` inside `RecorderThread`, causing both callbacks to `return (None, pyaudio.paContinue)` immediately without appending data. Resume clears the flag. Streams stay open — no re-init delay.
+### 1.5 — Naming dialog (`recorder/naming_dialog.py`)
 
-Output filename: `workspace/recording_YYYYMMDD_HHMMSS.wav`
-
-### 1.4 — Live notes window (`recorder/notes_window.py`)
-
-`NotesWindow(QWidget)` — a small always-on-top floating window, shown when the user clicks **Notes…** from the tray:
+`NamingDialog(QDialog)` — shown after every recording stops. Non-blocking relative to the mixdown (mixdown runs in parallel; dialog appears immediately on stop).
 
 ```
-┌─────────────────────────────────┐
-│  Notes — recording_20260715…    │
-├─────────────────────────────────┤
-│                                 │
-│  [QPlainTextEdit — editable]    │
-│                                 │
-├─────────────────────────────────┤
-│  [Save & Close]  [Keep Open]    │
-└─────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│  Name this recording                       │
+├────────────────────────────────────────────┤
+│  [_____________________________________________]  │
+│  Leave blank to use the date & time         │
+├────────────────────────────────────────────┤
+│  Duration: 03:42    Saved to: workspace/   │
+├────────────────────────────────────────────┤
+│              [Skip]        [Save]           │
+└────────────────────────────────────────────┘
 ```
 
-- Notes are held in memory during recording (not written to disk yet — no WAV file exists)
-- On recording stop, `RecorderThread` receives the notes text via `stop(notes_text)` call before saving
-- Notes are passed along in the `recording_stopped` signal for the next phase to persist into JSON
+On Save: writes `display_name` to the JSON stub (creating stub if mixdown not yet complete — the stub path is already known from the timestamp). On Skip: `display_name` stays empty; UI falls back to formatted date/time.
 
-### 1.5 — Settings window (`recorder/settings.py`)
+### 1.6 — Tray menu and state machine (`recorder/tray.py`)
 
-`SettingsWindow(QDialog)` — Phase 1 scope:
+```
+IDLE menu:
+  ● Diarized Transcriber  v0.1     [disabled]
+  ──────────────────────────────
+  ⏺  Start Recording
+  ──────────────────────────────
+  ⚙  Settings...
+  📋  View Recordings...
+  ──────────────────────────────
+  Quit
 
-| Setting | Type | Default |
-|---|---|---|
-| Microphone device | dropdown (WASAPI inputs) | System default |
-| Loopback device | dropdown (WASAPI loopbacks) | System default speaker loopback |
-| Output directory | path picker | `workspace/` relative to script |
+RECORDING menu:
+  ● Recording — 00:02:34           [disabled, live timer]
+  ──────────────────────────────
+  ⏸  Pause
+  ⏹  Stop
+  📝  Notes...
+  ──────────────────────────────
+  ⚙  Settings...
+  📋  View Recordings...
+  ──────────────────────────────
+  Quit
 
-Persisted to `~/.diarized_transcriber/settings.json`.
-
-### 1.6 — JSON store (`recorder/json_store.py`)
-
-Utility module used by both Phase 2 (enrichment) and Phase 3 (reading):
-
-```python
-def load(json_path: Path) -> dict: ...
-def save(json_path: Path, data: dict) -> None: ...
-def enrich(json_path: Path, notes: str = "", speaker_names: dict = None) -> None:
-    """Add notes and speaker_names fields if absent; preserve existing values."""
+PAUSED menu:
+  ● Paused — 00:02:34              [disabled]
+  ──────────────────────────────
+  ▶  Resume
+  ⏹  Stop
+  📝  Notes...
+  ──────────────────────────────
+  ⚙  Settings...
+  📋  View Recordings...
+  ──────────────────────────────
+  Quit
 ```
 
-### 1.7 — Icon generation
+### 1.7 — Live notes (`recorder/notes_window.py`)
 
-Icons are generated programmatically at first launch using `QPainter` if absent from disk — no binary assets in the repo:
+Floating always-on-top `QWidget`. Notes text is autosaved to `tmp/recording_.../notes.txt` every 10 seconds via `QTimer` while recording. On recording stop, the final notes text is read from the file and passed into the JSON stub.
 
-- `icon_idle.png` — 64×64, grey circle (#888888)
-- `icon_recording.png` — 64×64, red circle (#E53935)
-- `icon_paused.png` — 64×64, orange circle (#F57C00)
-- `icon_transcribing.png` — 64×64, orange circle with small inner clockwise arc (static; animation not required for MVP)
+### 1.8 — Icons
 
-### 1.8 — PyInstaller packaging
+Generated programmatically at first launch via `QPainter` if absent. No binary assets in the repo.
 
-`build.ps1` — enforces correct invocation directory to avoid PySide6 DLL resolution bug:
+### 1.9 — PyInstaller packaging (`recorder_gui.spec`, `build.ps1`)
 
-```powershell
-Set-Location $PSScriptRoot   # project root, never a sub-package dir
-pyinstaller recorder_gui.spec --clean
-```
+The embedded Python distribution (embeddable zip, ~20 MB) is included as a PyInstaller data file:
 
-`recorder_gui.spec` essentials:
 ```python
 a = Analysis(
     ['recorder_gui.py'],
-    datas=[('recorder/resources', 'recorder/resources')],
-    hiddenimports=['pyaudiowpatch'],
-    excludes=[
-        'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.QtWebEngine',
-        'PySide6.QtWebEngineCore', 'PySide6.QtCharts', 'PySide6.QtDataVisualization',
+    datas=[
+        ('recorder/resources', 'recorder/resources'),
+        ('vendor/python-3.12-embed-amd64.zip', 'vendor'),  # embedded Python for setup wizard
     ],
+    hiddenimports=['pyaudiowpatch'],
+    excludes=['PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.QtWebEngine',
+              'PySide6.QtWebEngineCore', 'PySide6.QtCharts'],
 )
 ```
 
-Use `--onedir` (one folder), not `--onefile` — one-file startup is measurably slower with PySide6 because it extracts the entire Qt tree on every launch.
-
-Icon must be `.ico` for the Windows EXE resource. `build.ps1` auto-converts `icon_idle.png` → `icon_idle.ico` using Pillow if needed.
+`build.ps1` sets location to project root before invoking PyInstaller (avoids DLL resolution bug).
 
 ### Phase 1 success criteria
 
-- Tray icon appears in Windows notification area on launch
-- Start → Record (mic + system audio) → Pause → Resume → Stop → WAV in `workspace/`
-- Notes window accessible during recording; text preserved into `recording_stopped` signal
-- Settings window saves/restores device selections
-- `build.ps1` produces `dist/recorder_gui/recorder_gui.exe` that runs without Python installed
+- Tray icon visible; Start → Record → Pause → Resume → Stop cycle works
+- Audio streams to `tmp/` during recording; RAM stays flat regardless of call length
+- Notes panel saves periodically to `tmp/`
+- On stop: mixdown completes, naming dialog appears, WAV + JSON stub appear in `workspace/`
+- Simulated crash (kill process during recording) → on relaunch, recovery dialog appears → recovered WAV in `workspace/`
+- Settings and workspace correctly resolve to `%APPDATA%\DiarizedTranscriber\` on Windows
 
 ---
 
-## Phase 2 — Transcription Integration
+## Phase 2 — Transcription Integration + Server
 
-**Deliverable:** After recording stops, the app offers to transcribe. Status shows in tray. Settings gains transcriber options. Notes + speaker map are written into the JSON.
+**Deliverable:** First-run setup wizard installs the backend. The GUI starts and monitors the FastAPI transcription server. Transcription queue with Pause/Cancel, global hotkeys, cloud consent.
 
-### 2.1 — TranscriberWorker (`recorder/transcriber_worker.py`)
+### 2.1 — Transcription server (`diarized_transcriber_server.py`)
 
-`TranscriberWorker(QObject)` using `QProcess`:
+Thin FastAPI wrapper around `diarized_transcriber.py`:
+
+```
+GET  /health               → {"status": "ready", "model": "small"}
+POST /jobs                 → {"job_id": "uuid", "status": "queued"}
+     body: {wav_path, model, language, backend, hf_token}
+GET  /jobs                 → [{job_id, status, wav_path, progress, display_name}, ...]
+GET  /jobs/{id}            → {job_id, status, progress, error}
+DELETE /jobs/{id}          → cancel a queued or running job
+POST /queue/pause          → pause the queue (current job finishes; no new jobs start)
+POST /queue/resume         → resume the queue
+POST /shutdown             → graceful server shutdown
+```
+
+Server runs on `localhost` only (not exposed to the network). One job runs at a time (serial). The queue is in-memory — jobs are re-submitted by the GUI if the server restarts.
+
+### 2.2 — Server manager (`recorder/server_manager.py`)
+
+`ServerManager(QObject)` — owned by `SystemTrayApp`:
 
 ```python
-class TranscriberWorker(QObject):
-    progress = Signal(str)    # stdout/stderr lines for status display
-    finished = Signal(int)    # exit code (0 = success)
-    error    = Signal(str)
+class ServerManager(QObject):
+    status_changed = Signal(str)   # "starting", "ready", "error"
 
-    def start(self, wav_path: Path, settings: Settings) -> None:
-        cmd = [
-            sys.executable,
-            str(app_path("diarized_transcriber.py")),
-            str(wav_path),
-            "--model",    settings.model,
-            "--language", settings.language,
-            "--backend",  settings.backend,
-            "--hf-token", settings.hf_token,
-        ]
+    def start(self):
+        python = user_data.backend_dir() / "venv" / "Scripts" / "python.exe"
+        server_script = app_resource_path("diarized_transcriber_server.py")
         self._proc = QProcess()
-        self._proc.readyReadStandardOutput.connect(self._on_stdout)
-        self._proc.readyReadStandardError.connect(self._on_stderr)
-        self._proc.finished.connect(self._on_finished)
-        self._proc.start(cmd[0], cmd[1:])
+        self._proc.start(str(python), [str(server_script), "--port", str(self._port)])
+        self._health_timer = QTimer()
+        self._health_timer.timeout.connect(self._check_health)
+        self._health_timer.start(2000)
 
-    def _on_finished(self, exit_code, _status):
-        if exit_code == 0:
-            self._enrich_json()   # add notes + speaker_names fields
-        self.finished.emit(exit_code)
-
-    def _enrich_json(self):
-        json_path = self._wav_path.with_suffix('.json')
-        json_store.enrich(json_path, notes=self._notes, speaker_names={})
+    def stop(self):
+        self._http_post("/shutdown")
+        self._proc.waitForFinished(5000)
+        if self._proc.state() != QProcess.ProcessState.NotRunning:
+            self._proc.kill()
 ```
 
-`app_path()` resolves relative to `sys._MEIPASS` when running as a PyInstaller bundle, or relative to `__file__` in development.
+`app_resource_path()` resolves to `sys._MEIPASS` in a frozen build or `__file__`'s parent in development.
 
-### 2.2 — Post-recording prompt
+### 2.3 — Transcription queue (`recorder/transcription_queue.py`)
 
-After `RecorderThread` emits `recording_stopped`, tray shows a system notification:
+`TranscriptionQueue(QObject)`:
+- Maintains an ordered list of `TranscriptionJob` dataclasses
+- `enqueue(wav_path, settings)` → POST to server, add to local list
+- Polls `GET /jobs` every 3 seconds via `QTimer`; emits `queue_updated(jobs)` signal
+- `pause_queue()` → `POST /queue/pause`; `resume_queue()` → `POST /queue/resume`
+- `cancel_job(job_id)` → `DELETE /jobs/{id}`; prompts "Cancel this transcription? Progress will be lost."
+- On job completion (status = "done"): calls `json_store.enrich_post_transcription()`
+
+Queue state is visible in the tray tooltip when active: `"Transcribing 2 of 4 recordings…"`
+
+### 2.4 — First-run setup wizard (`recorder/setup_wizard.py`)
+
+`SetupWizard(QDialog)` — shown if `backend/venv/` does not exist:
 
 ```
-"Recording saved (03:42). Transcribe now?"
+┌─────────────────────────────────────────────────────┐
+│  Welcome to Diarized Transcriber                    │
+│                                                     │
+│  First-time setup installs the local transcription  │
+│  engine (~3–5 GB). You only do this once.           │
+│                                                     │
+│  ① Extract Python runtime    [████████████] Done   │
+│  ② Create environment        [████████████] Done   │
+│  ③ Install packages          [████░░░░░░░░] 38%    │
+│  ④ Download Whisper model    [░░░░░░░░░░░░]         │
+│                                                     │
+│  Estimated time remaining: ~8 minutes               │
+│                                [Cancel setup]       │
+└─────────────────────────────────────────────────────┘
 ```
 
-Clicking the notification opens a small `QDialog`:
+Steps run in a `QThread`. Progress is streamed from pip's `--progress-bar` output (parsed from `QProcess` stdout). On cancel: cleans up partial venv. On completion: launches `ServerManager.start()` and enters normal tray flow. Re-runnable from Settings → Transcription → **Reinstall Backend**.
+
+### 2.5 — Global hotkeys (`recorder/hotkeys.py`)
+
+Win32 `RegisterHotKey` via `ctypes`. Runs a background thread that calls `GetMessage` for `WM_HOTKEY` events and emits Qt signals.
+
+Default hotkeys (configurable in Settings):
+
+| Action | Default |
+|---|---|
+| Start / Stop recording | `Ctrl+Shift+R` |
+| Pause / Resume | `Ctrl+Shift+P` |
+| Open Notes | `Ctrl+Shift+N` |
+
+**Conflict detection:** On registering a hotkey, if `RegisterHotKey` returns `False`, surface a warning:
+> "Ctrl+Shift+R could not be registered — it may be in use by another application. Choose a different key combination in Settings."
+
+Hotkeys are unregistered on app quit and re-registered after settings are saved.
+
+### 2.6 — Cloud consent dialog
+
+`CloudConsentDialog(QDialog)` — shown once, the first time the user selects "cloud" as the transcription backend:
+
 ```
-Recording: recording_20260715_143201.wav  (03:42)
-──────────────────────────────────────────────────
-[Transcribe Now]          [Later — View in Logs]
+┌────────────────────────────────────────────────────┐
+│  Audio will leave this device                      │
+├────────────────────────────────────────────────────┤
+│  Cloud transcription sends your recording to       │
+│  AssemblyAI's servers for processing. Audio is     │
+│  not stored by this app, but is subject to         │
+│  AssemblyAI's privacy policy.                      │
+│                                                    │
+│  Local transcription keeps all audio on-device.    │
+│                             [AssemblyAI Privacy ↗] │
+├────────────────────────────────────────────────────┤
+│  [Switch to local]          [I understand — proceed]│
+└────────────────────────────────────────────────────┘
 ```
 
-If **Transcribe Now**: launch `TranscriberWorker`, update tray icon to `icon_transcribing.png`, update tooltip. On completion, tray returns to IDLE and shows "Transcription complete" notification.
+`cloud_consent_given: true` stored in `settings.json`. Not shown again after consent.
 
-If auto-transcribe is enabled in settings, skip the dialog entirely.
+### 2.7 — Extended Settings window
 
-### 2.3 — Extended settings
+Phase 2 adds to `SettingsWindow`:
 
-Add to `SettingsWindow`:
+**Recording tab:** Microphone, loopback device, output directory  
+**Transcription tab:** Backend (local/cloud), model, language, HF token, AssemblyAI key, auto-transcribe toggle  
+**Hotkeys tab:** Configurable key bindings; shows conflict warnings inline  
+**Server tab:** Backend status (green/red dot + version), Reinstall Backend button  
+**Data tab:** Retention policy (auto-delete after N days, default off), Open Data Directory button
 
-| Setting | Type | Default |
-|---|---|---|
-| Auto-transcribe after recording | checkbox | off |
-| Transcription backend | dropdown: local / cloud | local |
-| Whisper model | dropdown: tiny / base / small / medium | small |
-| Language | text (ISO 639-1 code) | en |
-| HuggingFace token | password field | read from `.env` |
-| AssemblyAI API key | password field | read from `.env` |
-
-Credentials entered here are written back to `.env` via `python-dotenv`'s `set_key()`. They are never stored in `settings.json`.
+**Open Data Directory** → `QDesktopServices.openUrl(QUrl.fromLocalFile(str(user_data.workspace())))`
 
 ### Phase 2 success criteria
 
-- Record → Stop → auto or prompted transcription → JSON + TXT appear in `workspace/`
-- JSON contains `notes` (from recording session) and `speaker_names: {}` after transcription
-- Tray shows transcription progress and completion notification
-- Settings persist across app restarts
+- First-run wizard completes and backend server starts cleanly
+- Server health indicator shows green in Settings
+- Record → stop → name → auto or prompted transcription → JSON + TXT in `workspace/`
+- Queue: enqueue two recordings; second waits; Pause Queue stops new jobs from starting; Cancel per-job works
+- Global hotkeys start/stop recording without interacting with the tray
+- Cloud backend triggers consent dialog on first use; not shown again after
 
 ---
 
 ## Phase 3 — Recording Detail Viewer
 
-**Deliverable:** A full `RecordingsWindow` that replaces the basic log viewer, with per-recording playback, speaker naming, retranscription, notes editing, and two transcript view modes.
+**Deliverable:** Full `RecordingsWindow` with per-recording playback, speaker naming, notes, retain toggle, and reveal file.
 
-### 3.1 — RecordingsWindow layout (`recorder/recordings_window.py`)
+### 3.1 — RecordingsWindow layout
 
 Three-pane `QMainWindow`:
 
 ```
-┌────────────────────┬──────────────────────────────────────────┐
-│  Recordings        │  recording_20260715_143201.wav            │
-│  ─────────────     │  ──────────────────────────────────────── │
-│  [search bar]      │  [PlayerBar ─────────────────────────────]│
-│                    │  ▶  ━━━━━━━━━━━━●━━━  01:23 / 03:42      │
-│  Date       Dur    │  ──────────────────────────────────────── │
-│  Jul 15 3:42 ●     │  [Toolbar]                                │
-│  Jul 12 1:12 ✓     │  [Transcribe] [Retranscribe] [👤 Speakers]│
-│  Jul 10 0:48 ✓     │  [📋 Copy All] [🗑 Delete]                │
-│                    │  ──────────────────────────────────────── │
-│                    │  [Transcript ▼]  [Timestamps mode ⇄]      │
-│                    │                                           │
-│                    │  Jason (0:00 – 0:04): Hey, good to...    │
-│                    │  Teddy (0:04 – 0:12): Yeah absolutely...  │
-│                    │  Jason (0:12 – 0:28): So the reason I... │
-│                    │                                           │
-│                    │  ──────────────────────────────────────── │
-│                    │  Notes                                    │
-│                    │  [QPlainTextEdit — editable]              │
-│                    │                           [Save Notes]    │
-└────────────────────┴──────────────────────────────────────────┘
+┌───────────────────────┬──────────────────────────────────────────────────┐
+│  Recordings           │  Site call with Teddy                            │
+│  ───────────────────  │  ──────────────────────────────────────────────  │
+│  [search bar]         │  [▶ ━━━━━━━━━━━━●━━━  01:23 / 03:42]  [⋯]      │
+│                       │  ──────────────────────────────────────────────  │
+│  Site call with Teddy │  [Transcribe] [Retranscribe] [👤 Speakers]       │
+│  Jul 15  3:42  ✓  2   │  [📋 Copy]  [🗑 Delete]  [📁 Reveal]  [★ Keep]  │
+│  Jul 12  1:12  ✓  3   │  ──────────────────────────────────────────────  │
+│  Jul 10  0:48  ⏳      │  [Reading ●] [Timestamps ○]                     │
+│                       │                                                  │
+│                       │  Jason: Hey, good to connect. So the reason I…  │
+│                       │  Teddy: Yeah absolutely. I've been thinking…    │
+│                       │                                                  │
+│                       │  ──────────────────────────────────────────────  │
+│                       │  Notes                                           │
+│                       │  Follow up on budget by Friday.                 │
+│                       │  Teddy to send revised proposal.                │
+│                       │                              [Save Notes]        │
+└───────────────────────┴──────────────────────────────────────────────────┘
 ```
 
-### 3.2 — Recording list (`recorder/recording_list.py`)
+### 3.2 — Recording list
 
-`RecordingListPanel` scans `workspace/` for `recording_*.wav` on open and on a `QFileSystemWatcher`. Columns:
+`RecordingListPanel` uses `QFileSystemWatcher` on `workspace/` to update live. List columns:
 
 | Column | Source |
 |---|---|
-| Date / Time | Parsed from filename stem |
-| Duration | WAV header (`wave` module) |
-| Status icon | ✓ = JSON exists, ⏳ = transcribing, ● = no transcript yet |
-| Speakers | `speakers_detected` from JSON, or `—` |
-
-Sorted by date descending. Clicking a row loads that recording into `RecordingDetailPanel`. The search bar filters by date string and (if transcribed) text content of the `.txt` sidecar.
+| Display name | `display_name` from JSON, or formatted datetime if empty |
+| Date / Duration | `created_at`, WAV header |
+| Status | ✓ transcribed, ⏳ in queue/running, ● not yet transcribed |
+| Speakers | `speakers_detected` or `—` |
 
 ### 3.3 — Player bar (`recorder/player_bar.py`)
 
-`PlayerBar(QWidget)` wraps `QMediaPlayer` and `QAudioOutput`:
-
-```python
-self._player = QMediaPlayer()
-self._audio  = QAudioOutput()
-self._player.setAudioOutput(self._audio)
-self._player.setSource(QUrl.fromLocalFile(str(wav_path)))
-```
-
-Controls:
-- Play/Pause button — toggles `_player.play()` / `_player.pause()`
-- `QSlider` (horizontal) — position; updated via `_player.positionChanged`; scrubbing calls `_player.setPosition()`
-- Elapsed / total time labels — formatted `MM:SS`
-
-`QMediaPlayer` on Windows uses Windows Media Foundation, which supports WAV natively. No additional codecs needed.
+`PlayerBar(QWidget)` — `QMediaPlayer` + `QAudioOutput` + `QSlider`:
+- Play/Pause toggle button
+- Seek slider: updates from `positionChanged`; dragging calls `setPosition()`
+- Elapsed / total time labels (MM:SS)
+- Volume control (optional)
 
 ### 3.4 — Action toolbar
 
-Buttons and their behavior:
+| Button | Label | Enabled when | Action |
+|---|---|---|---|
+| Transcribe | Transcribe | No JSON or segments empty | Enqueue in `TranscriptionQueue` |
+| Retranscribe | Retranscribe | JSON + segments exist | Confirm → save notes + speaker_names → enqueue → re-enrich after |
+| Name Speakers | 👤 Speakers | JSON + speakers_detected > 0 | Open `SpeakerNameDialog` |
+| Copy | 📋 Copy | JSON exists | Copy rendered transcript to clipboard |
+| Delete | 🗑 Delete | Always | Confirm → remove WAV + JSON + TXT |
+| Reveal | 📁 Reveal | Always | Platform-specific file reveal (see below) |
+| Keep | ★ Keep | Always | Toggle `retain` in JSON; button state reflects current value |
 
-| Button | Enabled when | Action |
-|---|---|---|
-| **Transcribe** | No JSON sidecar exists | Launches `TranscriberWorker`; disables button while running |
-| **Retranscribe** | JSON exists | Prompts "Retranscribe? Existing transcript will be replaced." → relaunches `TranscriberWorker`; preserves `notes` and `speaker_names` in JSON after new transcription |
-| **Name Speakers** | JSON exists with `speakers_detected > 0` | Opens `SpeakerNameDialog` |
-| **Copy All** | JSON or TXT exists | Copies rendered transcript text to clipboard |
-| **Delete** | Always | "Delete recording and all associated files?" → removes WAV + JSON + TXT |
-
-Retranscribe preserves notes and speaker names: before launching, read current `notes` and `speaker_names` from JSON; after `TranscriberWorker` finishes, call `json_store.enrich()` with the saved values.
-
-### 3.5 — Speaker naming dialog (`recorder/speaker_dialog.py`)
-
-`SpeakerNameDialog(QDialog)` — one row per detected speaker:
-
-```
-┌──────────────────────────────────┐
-│  Name Your Speakers              │
-├──────────────────────────────────┤
-│  SPEAKER_00  [__Jason__________] │
-│  SPEAKER_01  [__Teddy__________] │
-├──────────────────────────────────┤
-│            [Cancel]  [Save]      │
-└──────────────────────────────────┘
+**Reveal file — platform-specific:**
+```python
+def reveal_file(path: Path) -> None:
+    if sys.platform == "win32":
+        subprocess.run(["explorer", "/select,", str(path)])
+    elif sys.platform == "darwin":
+        subprocess.run(["open", "-R", str(path)])
+    else:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 ```
 
-On Save:
-1. Write `speaker_names` dict to JSON via `json_store`
-2. Re-render the transcript view (substituting SPEAKER_XX with real names in display only — the raw JSON `segments` are unchanged)
-3. Optionally regenerate the `.txt` sidecar with real names
+**Keep / retain toggle:**
+- Button shows filled star (★) if `retain: true`, outline star (☆) if false
+- Clicking toggles `retain` in JSON via `json_store.save()`
+- Label tooltip: "Excluded from auto-delete" / "Will be deleted after N days"
 
-Speaker labels used in the transcript view: if `speaker_names["SPEAKER_00"] == "Jason"`, render `Jason` in place of `SPEAKER_00` or `Speaker 1`. If a name is blank, fall back to `Speaker 1`, `Speaker 2`, etc.
+### 3.5 — Transcript view
 
-### 3.6 — Transcript view (`RecordingDetailPanel` — transcript section)
+Two rendering modes toggled by radio buttons:
 
-Two rendering modes, toggled by a button in the detail panel header:
+**Reading mode** (default): adjacent segments from the same speaker are merged into paragraphs.
 
-**Reading mode** (default — easier to read):
-```
-Jason: Hey, good to connect. So the reason I wanted to hop on a call…
+**Timestamp mode**: one line per segment, aligned columns.
 
-Teddy: Yeah absolutely, and I've been thinking about the same thing…
-```
-Adjacent segments from the same speaker are merged into one paragraph.
+Both modes substitute real names from `speaker_names`. Falls back to `Speaker 1`, `Speaker 2` if names are unset.
 
-**Timestamp mode** (each segment on its own line):
-```
-Jason    0:00 – 0:04   Hey, good to connect.
-Jason    0:04 – 0:12   So the reason I wanted to hop on a call…
-Teddy    0:12 – 0:28   Yeah absolutely, and I've been thinking…
-```
+### 3.6 — Speaker naming dialog
 
-Both modes use `speaker_names` substitution. Toggle state is not persisted — defaults to Reading mode on each open.
-
-The view is `QPlainTextEdit` (read-only). If no JSON/TXT exists for the selected recording, show a placeholder: `"No transcript yet."` with a **Transcribe** button centered in the panel.
+`SpeakerNameDialog(QDialog)` — one text field per detected speaker. On Save: writes `speaker_names` to JSON, re-renders transcript view. Raw segment data is preserved unchanged.
 
 ### 3.7 — Notes panel
 
-`QPlainTextEdit` (editable) beneath the transcript view. On load, populates from `json["notes"]`. **Save Notes** writes back via `json_store.save()`. Changes are not auto-saved — the user must press Save (avoids accidental overwrite during brief viewing).
+Editable `QPlainTextEdit` below the transcript. Populated from `json["notes"]` on load. **Save Notes** button writes back via `json_store.save()`. Not auto-saved (prevents accidental overwrite while reading).
 
-If no JSON exists (no transcription yet), notes can still be viewed and saved — `json_store` creates a minimal JSON stub: `{"notes": "...", "speaker_names": {}, "segments": []}`.
+### 3.8 — Auto-delete policy
+
+Configured in Settings → Data:
+
+| Setting | Type | Default |
+|---|---|---|
+| Auto-delete recordings after | dropdown: Off / 7 / 14 / 30 / 60 / 90 days / Custom | Off |
+| Custom days | integer field | — |
+
+Sweep runs on app launch and daily via `QTimer`. For each recording:
+1. Parse `created_at` from JSON (or filename if JSON absent)
+2. If age > threshold AND `retain != true` AND not currently in transcription queue → delete WAV + JSON + TXT
+3. Log deletions to a `deletions.log` in `AppData\DiarizedTranscriber\` for auditability
+
+**Per-recording override:** `retain: true` in the JSON exempts a recording from all sweeps permanently.
 
 ### Phase 3 success criteria
 
-- Selecting a recording in the list loads its player, transcript, and notes
-- Playback controls work; seeking works
-- Transcribe / Retranscribe launch correctly; retranscribe preserves notes and speaker names
-- Speaker naming dialog updates display immediately
-- Both transcript view modes render correctly with named speakers
-- Notes save to JSON and persist across app restarts
-- Copy All copies rendered text (with real names if named)
-- Delete removes all three sidecar files after confirmation
+- All recordings listed; selecting one loads player, transcript, notes
+- Playback + seek works for any WAV in `workspace/`
+- Transcribe / Retranscribe enqueue correctly; retranscribe preserves notes and speaker names
+- Speaker naming updates transcript display immediately
+- Both transcript modes render correctly with real names
+- Reveal file opens Explorer with the file selected on Windows
+- Keep toggle persists across restarts
+- Auto-delete sweep removes recordings older than threshold; skips `retain: true` ones
+- Notes save to JSON and restore correctly
 
 ---
 
 ## Phase 4 — Cross-Platform Audio Backends
 
-**Deliverable:** The same GUI entry point runs on macOS and Linux. Only the audio capture backend changes.
+**Deliverable:** The same GUI entry point runs on macOS and Linux. Audio capture backend swaps per platform; all other code unchanged.
 
-### 4.1 — Platform factory (already scaffolded in Phase 1)
+### 4.1 — Platform factory (scaffolded in Phase 1)
 
 ```python
-# recorder/audio.py
 def get_audio_backend() -> AudioBackend:
     if sys.platform == "win32":
         from .backends.wasapi import WasapiBackend
@@ -586,109 +744,87 @@ def get_audio_backend() -> AudioBackend:
         return PulseAudioBackend()
 ```
 
-### 4.2 — macOS backend (`recorder/backends/coreaudio.py`)
+### 4.2 — macOS backend
 
-Library: `soundcard>=0.4.6`
+Library: `soundcard>=0.4.6`. Requires Screen & System Audio Recording TCC grant. Detect missing permission by checking RMS of a short test capture; surface a one-time dialog pointing to System Settings if absent.
 
-```python
-loopback_mic = sc.get_microphone(
-    id=str(sc.default_speaker().name), include_loopback=True
-)
-```
+### 4.3 — Linux backend
 
-**Permission check:** Before opening streams, verify Screen & System Audio Recording TCC access. If missing, `CoreAudioBackend.get_default_loopback()` raises `PermissionError`. `RecorderThread` catches this and emits `error()`. The tray handler shows a one-time dialog:
+Library: `soundcard>=0.4.6` via PulseAudio / PipeWire. No special permissions. GStreamer required for `QMediaPlayer` — check on startup and warn if absent.
 
-> "System Audio Recording permission is required. Open System Settings → Privacy & Security → Screen & System Audio Recording and enable Diarized Transcriber."
+### 4.4 — Per-platform binary builds
 
-With a button: **Open System Settings** → `QDesktopServices.openUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")`
-
-No virtual audio driver (BlackHole, Soundflower) required — ScreenCaptureKit on macOS 13+ handles system audio natively under the TCC grant.
-
-### 4.3 — Linux backend (`recorder/backends/pulseaudio.py`)
-
-Library: `soundcard>=0.4.6` (PulseAudio backend; also works via PipeWire's PulseAudio compatibility layer)
-
-PulseAudio exposes a monitor source for each output sink (e.g., `alsa_output.pci-0000:00:1b.0.analog-stereo.monitor`). SoundCard surfaces these when `include_loopback=True`. No special permissions needed on standard desktop Linux.
-
-### 4.4 — QMediaPlayer on macOS / Linux
-
-`QMediaPlayer` uses platform-native backends:
-- macOS: AVFoundation (WAV supported natively)
-- Linux: GStreamer (must be installed; most distros include it; WAV supported)
-
-No code changes to `PlayerBar` — Qt handles this transparently.
-
-### 4.5 — Per-platform binary builds
-
-PyInstaller must run on each target OS. Build matrix:
-
-| Platform | Output | Distribution format |
+| Platform | Output | Notes |
 |---|---|---|
-| Windows | `dist/recorder_gui/recorder_gui.exe` | Folder or NSIS installer |
-| macOS | `dist/recorder_gui.app` | DMG via `create-dmg` |
-| Linux | `dist/recorder_gui/recorder_gui` | AppImage via `appimagetool` |
+| Windows | `dist/recorder_gui/recorder_gui.exe` | Setup wizard extracts `vendor/python-3.12-embed-amd64.zip` |
+| macOS | `dist/recorder_gui.app` | TCC permission prompt on first loopback use |
+| Linux | `dist/recorder_gui/recorder_gui` → AppImage | GStreamer check on launch |
 
-Future: GitHub Actions matrix (`windows-latest`, `macos-latest`, `ubuntu-latest`) producing release artifacts on tag push.
+Future: GitHub Actions matrix build on tag push.
 
 ---
 
 ## Known Risks and Mitigations
 
-### PyInstaller + PySide6 DLL resolution on Windows
-**Risk:** Invoking PyInstaller from a directory containing `__init__.py` corrupts Qt DLL paths at runtime.  
-**Mitigation:** `build.ps1` enforces invocation from project root. Documented in build instructions.
+### Temp file disk usage during recording
+**Risk:** A 3-hour call at 48 kHz stereo 16-bit produces ~1.3 GB in `tmp/`. If disk is nearly full, writes fail.  
+**Mitigation:** Check available disk space before starting recording; warn if < 2 GB free. Write a `.meta` file last — its presence signals a complete (not partial) recording to the crash recovery scanner.
 
-### PyAudioWPatch — no active loopback device
-**Risk:** `get_default_wasapi_loopback()` returns `None` when no audio output is active (disconnected headphones, HDMI off).  
-**Mitigation:** `RecorderThread` checks for `None` before opening streams; emits `error("No loopback device found. Connect a speaker or headphones and try again.")`.
+### Mixdown race with naming dialog
+**Risk:** Mixdown takes a few seconds for very long calls. If the user clicks Save in the naming dialog before mixdown completes, the WAV path doesn't exist yet.  
+**Mitigation:** The JSON stub is written immediately with the display name. The WAV path in the stub is set to the expected final path. The mixdown worker emits `mixdown_complete` when done — the detail panel only enables Transcribe after this signal.
 
-### Pause discards audio vs. silence gap
-**Risk:** Pausing by discarding callback data introduces a gap in the WAV timeline. On playback and in the transcript, paused periods appear as dead air.  
-**Mitigation:** This is intentional — the user paused to avoid capturing content. Document in UI: "Audio during Pause is not recorded." If silence-filling is later requested, insert a block of zeros of equivalent duration instead of discarding.
+### Server port conflict
+**Risk:** Port 7777 is already in use.  
+**Mitigation:** Walk 7777–7780; store chosen port in `settings.json`. If all fail, show error: "Could not start transcription server. Check Settings → Server."
 
-### Sample rate mismatch between mic and loopback
-**Risk:** Mic often reports 44.1 kHz; loopback 48 kHz. Byte-level interleaving produces distortion.  
-**Mitigation:** Each stream is captured at its own native rate into separate buffers. Post-capture, `scipy.signal.resample_poly` resamples both to 16 kHz before mixing. Not real-time — no latency concern.
+### Win32 hotkey registration failure
+**Risk:** `RegisterHotKey` fails if the key combo is claimed by another app (Zoom, Teams, Windows itself).  
+**Mitigation:** Catch the failure, surface a warning in the Hotkeys settings tab with the conflicting key highlighted in red. Fall back to no hotkey (recording still works via tray menu).
 
-### macOS TCC — silent loopback failure
-**Risk:** If TCC permission is missing, SoundCard's loopback returns silence with no exception.  
-**Mitigation:** Phase 4 macOS backend records a short test capture at stream open and checks RMS. If below threshold, treats as permission-denied and surfaces the settings dialog.
+### Backend venv drift
+**Risk:** After a system Python or pip update, the backend venv may break.  
+**Mitigation:** Settings → Transcription → **Reinstall Backend** re-runs the setup wizard. Version info in `backend/version.json` lets the app detect when the installed whisperX version differs from what was last known to work.
 
-### QMediaPlayer — no GStreamer on Linux
-**Risk:** On minimal Linux installs, GStreamer may be absent, making `QMediaPlayer` fail silently.  
-**Mitigation:** Phase 4 Linux backend checks for GStreamer at startup and shows a one-time warning: "Install gstreamer1.0-plugins-good for audio playback." Transcription still works without it.
+### Cancel mid-transcription data loss
+**Risk:** Cancelling a running whisperX job via `DELETE /jobs/{id}` kills the process; no checkpoint means partial work is lost.  
+**Mitigation:** Warn explicitly in the Cancel dialog: "Cancelling a running transcription discards all progress. The recording is not affected." Distinguish clearly from Pause Queue, which lets the current job finish.
 
-### Retranscribe race with open JSON
-**Risk:** If the user has the detail panel open while retranscription is running, `json_store.save()` could conflict with `diarized_transcriber.py` writing the same file.  
-**Mitigation:** `TranscriberWorker` signals `started` → detail panel disables Save Notes and Name Speakers until `finished` fires.
+### Crash during mixdown (not during recording)
+**Risk:** App crashes during the post-stop mixdown. The `.raw` files are complete but the final WAV was never written.  
+**Mitigation:** Crash recovery checks for `tmp/` directories where `.meta` files exist but no corresponding WAV exists in `workspace/`. These are treated as recoverable — the mixdown is re-run on next launch.
 
-### Thread safety — QWidget from background thread
-**Risk:** Emitting signals from `RecorderThread` that directly mutate widgets crashes Qt.  
-**Mitigation:** All cross-thread signals use the default `Qt.QueuedConnection`. `RecorderThread.run()` never touches any widget directly.
+### PyInstaller + PySide6 DLL resolution
+**Risk:** Invoking PyInstaller from a directory containing `__init__.py` corrupts Qt DLL paths.  
+**Mitigation:** `build.ps1` enforces invocation from project root.
 
-### Binary size
-**Risk:** PySide6 + PyAudioWPatch + NumPy + SciPy + QtMultimedia → ~150–200 MB one-folder.  
-**Mitigation:** Exclude unused Qt modules in `.spec`. If size is a blocker, evaluate replacing `scipy.signal.resample_poly` with a pure-NumPy linear interpolation (adequate for 16 kHz voice).
+### macOS TCC silent failure
+**Risk:** SoundCard loopback returns silence without raising an exception if TCC is not granted.  
+**Mitigation:** RMS check on test capture before committing to a recording session.
 
 ---
 
 ## Dependencies by Phase
 
 ```
-# Phase 1 additions
+# Phase 1
 PySide6>=6.7.0
 PyAudioWPatch>=0.2.12.8
 scipy>=1.13.0
+numpy            # already in tree via whisperX
 
-# Phase 2 — no new deps (QProcess is in PySide6)
+# Phase 2
+fastapi>=0.111.0
+uvicorn>=0.29.0
+httpx>=0.27.0    # HTTP client for queue polling
 
-# Phase 3 — no new deps (QMediaPlayer is in PySide6.QtMultimedia, included in PySide6)
+# Phase 3 — no new deps (QMediaPlayer in PySide6; file ops use stdlib)
 
 # Phase 4 additions
-soundcard>=0.4.6      # macOS + Linux loopback
+soundcard>=0.4.6
 ```
 
-Full `requirements.txt` after Phase 1:
+Full `requirements.txt` after Phase 2:
 ```
 openai-whisper
 whisperx
@@ -698,6 +834,9 @@ python-dotenv
 PySide6>=6.7.0
 PyAudioWPatch>=0.2.12.8
 scipy>=1.13.0
+fastapi>=0.111.0
+uvicorn>=0.29.0
+httpx>=0.27.0
 ```
 
 ---
@@ -706,58 +845,67 @@ scipy>=1.13.0
 
 ### Phase 1
 
-1. Create `recorder/` package, `recorder/backends/`, and all stub files
-2. Implement icon generation (`recorder/tray.py` helper — `QPainter` circles, writes to `recorder/resources/` on first run)
-3. Implement `recorder/backends/wasapi.py` — `WasapiBackend(AudioBackend)` wrapping PyAudioWPatch
-4. Implement `recorder/audio.py` — `AudioBackend` ABC, `get_audio_backend()` factory, `RecorderThread` with pause/resume/stop
-5. Implement `recorder/json_store.py` — `load`, `save`, `enrich`
-6. Implement `recorder/notes_window.py` — `NotesWindow(QWidget)`, floating, always-on-top
-7. Implement `recorder/settings.py` — `Settings` dataclass + `SettingsWindow(QDialog)`, Phase 1 fields only
-8. Implement `recorder/tray.py` — `SystemTrayApp`, full state machine (IDLE / RECORDING / PAUSED / SAVING), wires `RecorderThread` and `NotesWindow`
-9. Implement `recorder_gui.py` — `QApplication`, `setQuitOnLastWindowClosed(False)`, instantiate `SystemTrayApp`, `app.exec()`
-10. Create `recorder_gui.spec` and `build.ps1`
-11. Smoke test: tray icon visible; record → pause → resume → stop → WAV in `workspace/`; notes captured in `recording_stopped` signal
-12. PyInstaller build test; verify `.exe` runs without Python
-13. Commit on `feat-recorder-gui`
+1. Implement `recorder/user_data.py` — path resolution; create all dirs on import
+2. Implement `recorder/json_store.py` — `create_stub`, `load`, `save`, `enrich_post_transcription`
+3. Implement `recorder/backends/wasapi.py` — `WasapiBackend(AudioBackend)`
+4. Implement `recorder/audio.py` — `AudioBackend` ABC, factory, `RecorderThread` with disk streaming
+5. Implement `recorder/crash_recovery.py` — scan `tmp/`, offer recovery dialog
+6. Implement `recorder/notes_window.py` — floating notes with 10-second autosave to `tmp/`
+7. Implement `recorder/naming_dialog.py` — `NamingDialog`, parallel with mixdown
+8. Implement icon generation (programmatic `QPainter` circles)
+9. Implement `recorder/settings.py` — `Settings` dataclass + `SettingsWindow` Phase 1 tabs only
+10. Implement `recorder/tray.py` — `SystemTrayApp`, full state machine
+11. Implement `recorder_gui.py` — crash recovery check → tray app entry point
+12. Create `recorder_gui.spec` and `build.ps1`
+13. Smoke test: full record → pause → resume → stop → name → WAV + JSON stub in AppData
+14. Crash test: kill process mid-record → relaunch → recover dialog → recovered WAV
+15. Commit on `feat-recorder-gui`
 
 ### Phase 2
 
-1. Implement `recorder/transcriber_worker.py`
-2. Wire post-recording prompt and auto-transcribe logic in `tray.py`
-3. Extend `SettingsWindow` with transcriber fields
-4. Implement `_enrich_json()` call in `TranscriberWorker._on_finished()`
-5. End-to-end test: record → transcribe → JSON with `notes` and `speaker_names: {}` in `workspace/`
+1. Implement `diarized_transcriber_server.py` — FastAPI wrapper with all endpoints
+2. Implement `recorder/server_manager.py` — `ServerManager` lifecycle
+3. Implement `recorder/setup_wizard.py` — `SetupWizard` with step progress
+4. Implement `recorder/transcription_queue.py` — queue, polling, pause, cancel
+5. Implement `recorder/hotkeys.py` — Win32 `RegisterHotKey`, conflict detection
+6. Implement cloud consent dialog
+7. Extend `SettingsWindow` with Transcription, Hotkeys, Server, Data tabs
+8. Wire server start into `recorder_gui.py` entry point (after crash recovery, before tray)
+9. End-to-end test: record → transcribe → JSON enriched; queue two recordings; pause queue; cancel; hotkeys work
 
 ### Phase 3
 
-1. Implement `recorder/player_bar.py` (`QMediaPlayer` + controls)
-2. Implement `recorder/speaker_dialog.py` (`SpeakerNameDialog`)
-3. Implement `recorder/recording_list.py` (`RecordingListPanel`, `QFileSystemWatcher`)
-4. Implement `recorder/recording_detail.py` (`RecordingDetailPanel` — player, toolbar, transcript, notes)
-5. Implement `recorder/recordings_window.py` (`RecordingsWindow`, wires list + detail)
-6. Wire "View Recordings…" tray action to open `RecordingsWindow`
-7. Full test: all per-recording actions, both transcript modes, speaker naming, notes save/restore
+1. Implement `recorder/player_bar.py`
+2. Implement `recorder/speaker_dialog.py`
+3. Implement `recorder/recording_list.py` with `QFileSystemWatcher`
+4. Implement `recorder/recording_detail.py` — all toolbar actions, transcript modes, notes, retain toggle
+5. Implement `recorder/recordings_window.py`
+6. Wire "View Recordings…" tray action
+7. Implement auto-delete sweep in `json_store.py`; wire into app launch and daily timer
+8. Full test: all detail panel actions; retain toggle; auto-delete; reveal file
 
-### Phase 4 (requires macOS/Linux hardware)
+### Phase 4
 
-1. Implement `recorder/backends/coreaudio.py` with TCC permission check
-2. Implement `recorder/backends/pulseaudio.py` with GStreamer check
-3. Test on macOS: permission flow, loopback capture, playback, build `.app`
-4. Test on Linux: loopback capture, GStreamer check, playback, build AppImage
-5. Set up GitHub Actions matrix build
+1. `recorder/backends/coreaudio.py` — TCC permission check
+2. `recorder/backends/pulseaudio.py` — GStreamer check
+3. macOS + Linux smoke tests
+4. Per-platform PyInstaller builds
+5. GitHub Actions matrix build
 
 ---
 
 ## Success Criteria — Full Product
 
-- Record, pause, resume, stop from the system tray on Windows
-- Live notes captured during recording and persisted to JSON
-- Auto or on-demand transcription with progress visible in tray
-- RecordingsWindow lists all recordings; selecting one loads player, transcript, notes
-- Audio plays back with seek; timestamps align with transcript segments
-- Speaker naming updates transcript display immediately
-- Retranscribe preserves notes and speaker names
-- Both transcript view modes (reading / timestamp) render correctly with real names
-- Copy All copies clean readable text
-- Delete removes WAV + JSON + TXT with confirmation
-- Windows `.exe` binary runs on a machine without Python installed
+- Record, pause, resume, stop — audio streams to disk; RAM stays flat for any call length
+- Simulated crash mid-recording → recovery dialog on relaunch → recovered WAV in workspace
+- Live notes saved periodically; recovered on crash
+- Naming prompt on stop; skippable; display name shows everywhere in UI
+- First-run wizard installs backend without external tools; progress visible; re-runnable
+- Transcription server starts automatically with the GUI; health shown in Settings
+- Queue handles multiple recordings; Pause Queue and per-job Cancel work correctly
+- Global hotkeys trigger recording; unresolvable conflicts warned clearly in Settings
+- Cloud backend triggers one-time consent dialog; not shown again
+- Auto-delete purges aged recordings; skips `retain: true` ones
+- Reveal file opens Explorer with the file selected on Windows
+- All recording actions (transcribe, retranscribe, name speakers, copy, delete, notes) work in the detail panel
+- Windows `.exe` is the only artifact a user needs

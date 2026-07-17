@@ -19,6 +19,7 @@ env/
 # PyInstaller output
 dist/
 build/
+assets/icon.ico
 
 # Models cache
 .cache/

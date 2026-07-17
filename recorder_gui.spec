@@ -113,7 +113,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="assets/icon.ico",  # uncomment when an icon file is added
+    icon="assets/icon.ico",
 )
 
 coll = COLLECT(

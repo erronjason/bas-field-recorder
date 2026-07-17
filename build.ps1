@@ -36,9 +36,17 @@ if ($Clean) {
     }
 }
 
+# ── Generate icon ────────────────────────────────────────────────────────────
+Write-Host "Generating icon ..."
+python make_icon.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "make_icon.py failed."
+    exit $LASTEXITCODE
+}
+
 # ── Run PyInstaller ──────────────────────────────────────────────────────────
 Write-Host "Building FieldRecorder ..."
-pyinstaller --noconfirm recorder_gui.spec
+python -m PyInstaller --noconfirm recorder_gui.spec
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "PyInstaller failed with exit code $LASTEXITCODE."

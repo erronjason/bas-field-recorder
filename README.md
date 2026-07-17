@@ -41,29 +41,28 @@ Linux: `~/.local/share/bureau-of-applied-science/`
 
 ## Installation
 
-**Requirements:** Windows 10/11. Python 3.10+ (GUI dependencies only).
+**Requirements:** Windows 10/11.
+
+### Release binary
+
+Download `FieldRecorder-vX.X.X-windows.zip` from [Releases](https://github.com/erronjason/bas-field-recorder/releases), extract, and run `FieldRecorder.exe`. No Python required.
+
+On first launch, the setup wizard installs the on-device transcription engine into a self-contained embedded Python runtime (~10 MB download). The full stack - PyTorch, whisperX, pyannote - is approximately 3–5 GB.
+
+The wizard can be re-run at any time from **Settings → Service → Reinstall transcription service**.
+
+### Building from source
+
+**Requires:** Python 3.10+.
 
 ```bash
 git clone git@github.com:erronjason/bas-field-recorder.git
 cd bas-field-recorder
 pip install -r requirements.txt
-```
-
-On first launch, the setup wizard installs the on-device transcription engine into a self-contained embedded Python runtime (~10 MB download). No system Python is required for the transcription backend. The full stack - PyTorch, whisperX, pyannote - is approximately 3–5 GB.
-
-The wizard can be re-run at any time from **Settings → Service → Reinstall transcription service**.
-
----
-
-## Running
-
-```bash
 python recorder_gui.py
 ```
 
-The application appears as a tray icon. On first run the setup wizard installs the on-device transcription engine.
-
-**Build a distributable (Windows):**
+**Build a distributable:**
 
 ```powershell
 .\build.ps1
@@ -75,14 +74,14 @@ Output: `dist\FieldRecorder\FieldRecorder.exe`
 
 ## Tray icon
 
-The icon uses the BAS three-line mark. The bottom bar signals capture state:
+The icon uses the BAS three-line mark. All bars change color together to signal capture state:
 
-| State | Bottom bar |
+| State | All bars |
 |---|---|
-| Idle | Warm light - no active capture |
-| Capturing | Warm red - audio being written to disk |
-| Paused | Mid orange - capture suspended |
-| Saving | Steel blue - mixdown and transcription queued |
+| Idle | Muted — no active capture |
+| Capturing | Accent orange — audio being written to disk |
+| Paused | Top and bottom bars faint, middle bar accent — capture suspended |
+| Saving | Accent-dim — mixdown and transcription queued |
 
 ### Menu
 
@@ -93,9 +92,7 @@ The icon uses the BAS three-line mark. The bottom bar signals capture state:
 | Stop capture | Stop and open naming dialog |
 | Session notes | Floating notes panel (always on top) |
 | Pause / Resume transcription queue | Hold or release queued jobs |
-| Open records | Opens `records\` in Explorer |
-| Open data folder | Opens `BureauOfAppliedScience\` in Explorer |
-| Settings | Audio devices, transcription, hotkeys, service, data |
+| Open records | Opens the Records window |
 | Quit | Exits; warns if capture is in progress |
 
 ### Default hotkeys
@@ -128,12 +125,12 @@ Off-device is appropriate when no NVIDIA GPU is available, when transcribing a l
 
 | | On-device | Off-device |
 |---|---|---|
-| Cost | Free | ~$0.37–$0.65 / hr of audio |
+| Cost | Free | ~$0.37–$0.65 / hr of audio (estimate) |
 | Privacy | Audio stays on this machine | Audio transmitted to AssemblyAI |
 | Speed - GPU | ~10–20× real-time | ~10–15× real-time |
 | Speed - CPU | ~0.3–0.5× real-time | ~10–15× real-time |
-| 2-speaker accuracy | ~85–95% | ~85–90% |
-| 5+ speaker accuracy | ~70–80% | ~85–90% |
+| 2-speaker accuracy | ~85–95% (estimate) | ~85–90% (estimate) |
+| 5+ speaker accuracy | ~70–80% (estimate) | ~85–90% (estimate) |
 | Requires | HuggingFace token + model terms | AssemblyAI API key |
 
 ---

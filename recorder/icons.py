@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 def _draw_mark(size: int, top: str, mid: str, bot: str) -> QIcon:
     """Render the BAS three-bar mark at the given size with explicit bar colors.
 
-    Geometry mirrors docs/bas-icon.svg (32×32 reference):
+    Geometry mirrors recorder/resources/brand/bas-icon.svg (32×32 reference):
       top bar:    y=0,    h=10, full width
       middle bar: y=11.5, h=9,  75% width
       bottom bar: y=22,   h=10, full width
@@ -46,9 +46,9 @@ def bas_icon(size: int = 32) -> QIcon:
 
 _TRAY_COLORS: dict[str, tuple[str, str, str]] = {
     "idle":      ("#A39B90", "#A39B90", "#A39B90"),
-    "recording": ("#E2761B", "#E2761B", "#E2761B"),
-    "paused":    ("#6E665C", "#E2761B", "#6E665C"),
-    "saving":    ("#A39B90", "#A39B90", "#A39B90"),
+    "recording": ("#C9740E", "#C9740E", "#C9740E"),
+    "paused":    ("#6E665C", "#C9740E", "#6E665C"),
+    "saving":    ("#BA581C", "#BA581C", "#BA581C"),
 }
 
 
@@ -59,7 +59,7 @@ def tray_state_icon(state: str, size: int = 22) -> QIcon:
 
 
 def bas_svg_path(name: str = "BAS-landscape") -> Path:
-    """Resolve path to a docs/ SVG asset (works in dev and frozen builds)."""
+    """Resolve path to a brand SVG asset (works in dev and frozen builds)."""
     if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS) / "docs" / f"{name}.svg"  # type: ignore[attr-defined]
-    return Path(__file__).parent.parent / "docs" / f"{name}.svg"
+        return Path(sys._MEIPASS) / "recorder" / "resources" / "brand" / f"{name}.svg"  # type: ignore[attr-defined]
+    return Path(__file__).parent / "resources" / "brand" / f"{name}.svg"

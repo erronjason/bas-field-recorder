@@ -31,9 +31,9 @@ def bas_palette() -> QPalette:
     p = QPalette()
     ground = QColor("#171512")
     raised = QColor("#1F1C18")
-    text   = QColor("#EDE7DE")
+    text   = QColor("#F9EDD9")
     muted  = QColor("#A39B90")
-    accent = QColor("#E2761B")
+    accent = QColor("#C9740E")
     faint  = QColor("#6E665C")
     rule   = QColor("#2E2A25")
 

@@ -1,26 +1,53 @@
-# Workspace — audio input and transcription output (not committed)
+# ── Records and media ────────────────────────────────────────
+# transcribe.py writes records here. Never commit call audio or
+# transcripts. See §4 of the hygiene brief — this becomes
+# removable once the CLI routes through user_data.records_dir().
 workspace/*
 !workspace/.gitkeep
+# Stray captures and derived sidecars anywhere in the tree
+*.wav
+*.flac
+*.m4a
+*.mp3
+*.ogg
+*.webm
 
-# Claude Code
-.claude/
+# ── Internal documents ───────────────────────────────────────
+# docs/ is closed by default. Un-ignore anything intended to ship.
+docs/*.md
 
-# Secrets
+# ── Secrets ──────────────────────────────────────────────────
 .env
 
-# Python
+# ── Tooling ──────────────────────────────────────────────────
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# ── Python ───────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 .venv/
 venv/
 env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# PyInstaller output
+# ── Build output ─────────────────────────────────────────────
 dist/
 build/
 build_*.txt
 assets/icon.ico
 
-# Models cache
+# ── Caches ───────────────────────────────────────────────────
 .cache/
+models/
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

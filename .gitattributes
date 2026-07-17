@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.svg text eol=lf
+*.png binary
+*.ico binary
+*.flac binary
+*.wav binary

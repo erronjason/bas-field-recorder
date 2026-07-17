@@ -18,8 +18,8 @@ a = Analysis(
         ("transcription_server.py", "."),
         ("transcribe.py", "."),
         # BAS wordmark SVGs rendered in the setup wizard header.
-        ("docs/BAS-landscape.svg", "docs"),
-        ("docs/BAS-stacked.svg", "docs"),
+        ("recorder/resources/brand/BAS-landscape.svg", "recorder/resources/brand"),
+        ("recorder/resources/brand/BAS-stacked.svg",   "recorder/resources/brand"),
         # Global visual system stylesheet.
         ("field_recorder.qss", "."),
     ],

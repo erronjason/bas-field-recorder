@@ -344,30 +344,36 @@ class _StepRow(QWidget):
         layout.setSpacing(2)
 
         self._label = QLabel(label)
-        self._label.setStyleSheet("font-size: 12px;")
+        self._label.setProperty("role", "step-label")
+        self._label.setProperty("state", "pending")
         layout.addWidget(self._label)
 
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
-        self._bar.setFixedHeight(14)
+        self._bar.setFixedHeight(4)
         self._bar.setTextVisible(False)
         layout.addWidget(self._bar)
 
+    def _set_state(self, state: str) -> None:
+        self._label.setProperty("state", state)
+        self._label.style().unpolish(self._label)
+        self._label.style().polish(self._label)
+
     def set_active(self, description: str) -> None:
         self._label.setText(description)
-        self._label.setStyleSheet("font-size: 12px; color: #C9740E;")
+        self._set_state("active")
 
     def set_progress(self, pct: int) -> None:
         self._bar.setValue(pct)
 
     def set_done(self) -> None:
         self._label.setText(self._label_text)
-        self._label.setStyleSheet("font-size: 12px; color: #198754;")
+        self._set_state("done")
         self._bar.setValue(100)
 
     def set_failed(self) -> None:
-        self._label.setStyleSheet("font-size: 12px; color: #C4392D;")
+        self._set_state("error")
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +447,7 @@ class SetupWizard(QDialog):
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
-        self._status_label.setStyleSheet("font-size: 11px; color: gray;")
+        self._status_label.setProperty("role", "metadata")
         layout.addWidget(self._status_label)
 
         btns = QDialogButtonBox()
@@ -488,13 +494,14 @@ class SetupWizard(QDialog):
     def _on_step_failed(self, idx: int, error: str) -> None:
         self._rows[idx].set_failed()
         self._status_label.setText(f"Installation failed at step {idx + 1}:\n{error}")
-        self._status_label.setStyleSheet("font-size: 11px; color: #dc3545;")
+        self._status_label.setProperty("role", "error")
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
         self._cancel_btn.setText("Close")
 
     @Slot()
     def _on_all_done(self) -> None:
         self._status_label.setText("Installation complete.")
-        self._status_label.setStyleSheet("font-size: 11px; color: #198754;")
         self._cancel_btn.setText("Close")
         self.accept()
 

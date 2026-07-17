@@ -16,5 +16,11 @@ __pycache__/
 venv/
 env/
 
+# PyInstaller output
+dist/
+build/
+build_*.txt
+assets/icon.ico
+
 # Models cache
 .cache/

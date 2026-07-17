@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -165,7 +166,7 @@ class SettingsWindow(QDialog):
         note = QLabel(
             "Loopback captures all audio playing through your speakers or headphones."
         )
-        note.setStyleSheet("color: gray; font-size: 11px;")
+        note.setProperty("role", "metadata")
         note.setWordWrap(True)
         form.addRow(note)
 
@@ -249,9 +250,9 @@ class SettingsWindow(QDialog):
             form.addRow(f"{label}:", edit)
 
             warn = QLabel("")
-            warn.setStyleSheet("color: #dc3545; font-size: 11px;")
+            warn.setProperty("role", "error")
             if action in self._hk_conflicts:
-                warn.setText(f"⚠ Could not register — may conflict with another app")
+                warn.setText("Could not register — may conflict with another app")
             self._hk_warnings[action] = warn
             form.addRow("", warn)
 
@@ -259,7 +260,7 @@ class SettingsWindow(QDialog):
             "Use Ctrl, Shift, Alt as modifiers. Example: Ctrl+Shift+R\n"
             "Changes take effect after clicking OK."
         )
-        note.setStyleSheet("color: gray; font-size: 11px;")
+        note.setProperty("role", "metadata")
         note.setWordWrap(True)
         form.addRow(note)
 
@@ -281,8 +282,10 @@ class SettingsWindow(QDialog):
 
         status_row = QHBoxLayout()
         status_row.addWidget(QLabel("Status:"))
-        self._server_status_dot = QLabel("●")
-        self._server_status_dot.setStyleSheet("color: gray;")
+        self._server_status_dot = QFrame()
+        self._server_status_dot.setFixedSize(6, 6)
+        self._server_status_dot.setProperty("role", "dot")
+        self._server_status_dot.setProperty("state", "idle")
         self._server_status_label = QLabel("Unknown")
         status_row.addWidget(self._server_status_dot)
         status_row.addWidget(self._server_status_label)
@@ -302,12 +305,17 @@ class SettingsWindow(QDialog):
 
     def _refresh_server_status(self) -> None:
         if self._server and self._server.is_ready():
-            self._server_status_dot.setStyleSheet("color: #198754;")
+            self._set_dot_state("active")
             port = self._server.port or "?"
             self._server_status_label.setText(f"Ready (port {port})")
         else:
-            self._server_status_dot.setStyleSheet("color: #dc3545;")
+            self._set_dot_state("error")
             self._server_status_label.setText("Not running")
+
+    def _set_dot_state(self, state: str) -> None:
+        self._server_status_dot.setProperty("state", state)
+        self._server_status_dot.style().unpolish(self._server_status_dot)
+        self._server_status_dot.style().polish(self._server_status_dot)
 
     def _on_reinstall(self) -> None:
         self.reinstall_requested.emit()
@@ -344,7 +352,7 @@ class SettingsWindow(QDialog):
             "Records with a retention hold are excluded from the retention policy.\n"
             "Removed records are logged to deletions.log in the data directory."
         )
-        note.setStyleSheet("color: gray; font-size: 11px;")
+        note.setProperty("role", "metadata")
         note.setWordWrap(True)
         form.addRow(note)
 
@@ -399,7 +407,7 @@ class SettingsWindow(QDialog):
                 parse_hotkey(spec)
                 self._hk_warnings[action].setText("")
             except ValueError as exc:
-                self._hk_warnings[action].setText(f"⚠ {exc}")
+                self._hk_warnings[action].setText(str(exc))
                 return  # don't save if any hotkey is invalid
 
         s.hotkey_start_stop = new_hk["start_stop"]

@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
     QVBoxLayout,
 )
 
@@ -13,17 +15,18 @@ from . import json_store
 
 
 class NamingDialog(QDialog):
-    """Shown after every recording stops. Lets the user give it a display name.
+    """Shown after every recording stops. Lets the user name and annotate it.
 
-    Always writes a JSON stub (with empty name if skipped) so downstream
-    components have a consistent sidecar to read.
+    Normally writes a JSON stub on close (empty name if skipped). If the user
+    discards, no stub is written and ``.discarded`` is True — callers should
+    delete the audio file.
     """
 
     def __init__(self, wav_path: Path, notes: str = "", parent=None):
         super().__init__(parent)
         self._wav_path = wav_path
-        self._notes = notes
         self._stub_written = False
+        self.discarded = False
 
         self.setWindowTitle("Name this record")
         self.setWindowFlags(
@@ -42,19 +45,33 @@ class NamingDialog(QDialog):
         layout.addWidget(self._name_edit)
 
         hint = QLabel("Leave blank to use the date and time.")
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setProperty("role", "metadata")
         layout.addWidget(hint)
 
         dur_text = self._duration_text(wav_path)
         if dur_text:
             dur_label = QLabel(dur_text)
-            dur_label.setStyleSheet("color: gray; font-size: 11px;")
+            dur_label.setProperty("role", "metadata")
             layout.addWidget(dur_label)
 
+        layout.addWidget(QLabel("Notes (optional):"))
+
+        self._notes_edit = QPlainTextEdit()
+        self._notes_edit.setPlaceholderText("Field notes, context, follow-ups…")
+        self._notes_edit.setFixedHeight(80)
+        if notes:
+            self._notes_edit.setPlainText(notes)
+        layout.addWidget(self._notes_edit)
+
         buttons = QDialogButtonBox()
+        discard_btn = buttons.addButton("Discard", QDialogButtonBox.ButtonRole.DestructiveRole)
+        discard_btn.setProperty("role", "destructive")
+        discard_btn.style().unpolish(discard_btn)
+        discard_btn.style().polish(discard_btn)
         skip_btn = buttons.addButton("Skip", QDialogButtonBox.ButtonRole.RejectRole)
         save_btn = buttons.addButton("Save", QDialogButtonBox.ButtonRole.AcceptRole)
         save_btn.setDefault(True)
+        discard_btn.clicked.connect(self._discard)
         skip_btn.clicked.connect(self._skip)
         save_btn.clicked.connect(self._save)
         layout.addWidget(buttons)
@@ -72,9 +89,24 @@ class NamingDialog(QDialog):
         self._write_stub("")
         self.reject()
 
+    def _discard(self) -> None:
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Discard record")
+        msg.setText(
+            "The audio file will be permanently deleted. This cannot be undone."
+        )
+        confirm_btn = msg.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(cancel_btn)
+        msg.exec()
+        if msg.clickedButton() is confirm_btn:
+            self.discarded = True
+            self.reject()
+
     def _write_stub(self, display_name: str) -> None:
         if not self._stub_written:
-            json_store.create_stub(self._wav_path, display_name, self._notes)
+            notes = self._notes_edit.toPlainText().strip()
+            json_store.create_stub(self._wav_path, display_name, notes)
             self._stub_written = True
 
     # ------------------------------------------------------------------
@@ -82,7 +114,8 @@ class NamingDialog(QDialog):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:
-        self._write_stub("")
+        if not self.discarded:
+            self._write_stub("")
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

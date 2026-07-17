@@ -37,7 +37,7 @@ class NotesWindow(QWidget):
         layout.setSpacing(8)
 
         self._header = QLabel("Session notes")
-        self._header.setStyleSheet("font-weight: bold;")
+        self._header.setProperty("role", "section")
         layout.addWidget(self._header)
 
         self._editor = QPlainTextEdit()

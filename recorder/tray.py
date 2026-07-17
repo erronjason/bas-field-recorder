@@ -6,14 +6,14 @@ import enum
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import user_data
-from .icons import bas_icon as _bas_icon
+from .icons import tray_state_icon as _state_icon
 from .audio import AudioBackend, MixdownWorker, RecorderThread, get_audio_backend
 from .hotkeys import HotkeyManager
 from .naming_dialog import NamingDialog
@@ -21,6 +21,9 @@ from .notes_window import NotesWindow
 from .server_manager import ServerManager
 from .settings import Settings, SettingsWindow
 from .transcription_queue import TranscriptionQueue
+
+if TYPE_CHECKING:
+    from .recordings_window import RecordingsWindow
 
 
 class State(enum.Enum):
@@ -30,19 +33,12 @@ class State(enum.Enum):
     SAVING = "saving"
 
 
-_STATE_BOTTOM_COLORS = {
-    State.IDLE: "#D4C4B0",
-    State.RECORDING: "#C4392D",
-    State.PAUSED: "#C9740E",
-    State.SAVING: "#4A7FA3",
-}
-
 _icon_cache: dict[State, QIcon] = {}
 
 
 def _icon(state: State, size: int = 22) -> QIcon:
     if state not in _icon_cache:
-        _icon_cache[state] = _bas_icon(size, _STATE_BOTTOM_COLORS[state])
+        _icon_cache[state] = _state_icon(state.value, size)
     return _icon_cache[state]
 
 
@@ -54,6 +50,7 @@ class SystemTrayApp(QSystemTrayIcon):
         server: ServerManager,
         queue: TranscriptionQueue,
         hotkeys: HotkeyManager,
+        recordings_window: Optional["RecordingsWindow"] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -66,11 +63,13 @@ class SystemTrayApp(QSystemTrayIcon):
         self._pending_tmp_path: Optional[Path] = None
         self._naming_done = False
         self._mixdown_done = False
+        self._discarded = False
 
         self._notes_window = NotesWindow()
         self._server = server
         self._queue = queue
         self._hotkeys = hotkeys
+        self._recordings_window = recordings_window
 
         # Hotkey signals → recording actions
         self._hotkeys.start_stop_triggered.connect(self._hotkey_start_stop)
@@ -128,16 +127,6 @@ class SystemTrayApp(QSystemTrayIcon):
         act_workspace.triggered.connect(self._open_records)
         menu.addAction(act_workspace)
 
-        act_data = QAction("Open data folder", menu)
-        act_data.triggered.connect(self._open_data_dir)
-        menu.addAction(act_data)
-
-        menu.addSeparator()
-
-        self._act_settings = QAction("Settings…", menu)
-        self._act_settings.triggered.connect(self._open_settings)
-        menu.addAction(self._act_settings)
-
         menu.addSeparator()
 
         act_quit = QAction("Quit", menu)
@@ -154,7 +143,6 @@ class SystemTrayApp(QSystemTrayIcon):
         self._act_pause.setVisible(is_live)
         self._act_stop.setVisible(is_live)
         self._act_notes.setVisible(is_live)
-        self._act_settings.setEnabled(is_idle)
         self._act_pause.setText("Resume" if self._state == State.PAUSED else "Pause")
 
         # Queue pause toggle
@@ -231,10 +219,12 @@ class SystemTrayApp(QSystemTrayIcon):
         self._refresh()
 
     def _open_records(self) -> None:
-        _reveal_path(user_data.records_dir())
-
-    def _open_data_dir(self) -> None:
-        _reveal_path(user_data.app_data_root())
+        if self._recordings_window is not None:
+            self._recordings_window.show()
+            self._recordings_window.raise_()
+            self._recordings_window.activateWindow()
+        else:
+            _reveal_path(user_data.records_dir())
 
     def _open_settings(self) -> None:
         if self._backend is None:
@@ -292,11 +282,25 @@ class SystemTrayApp(QSystemTrayIcon):
         self._mixdown_worker.mixdown_error.connect(self._on_mixdown_error)
         self._mixdown_worker.start()
 
+        self._discarded = False
+
         dlg = NamingDialog(audio_path, notes)
         dlg.exec()
         self._naming_done = True
 
-        if self._mixdown_done:
+        if dlg.discarded:
+            if self._mixdown_done:
+                # Mixdown finished while dialog was open — FLAC exists, delete it now.
+                audio_path.unlink(missing_ok=True)
+                self._discarded = False
+                self._mixdown_worker = None
+                self._recorder = None
+                self._state = State.IDLE
+                self._refresh()
+            else:
+                # Mixdown still running — flag it; _on_mixdown_complete will clean up.
+                self._discarded = True
+        elif self._mixdown_done:
             self._finish_saving(audio_path)
 
     @Slot(str)
@@ -314,14 +318,22 @@ class SystemTrayApp(QSystemTrayIcon):
         self._cleanup_tmp()
         self._mixdown_done = True
         if self._naming_done:
-            self._finish_saving(audio_path)
+            if self._discarded:
+                audio_path.unlink(missing_ok=True)
+                self._discarded = False
+                self._mixdown_worker = None
+                self._recorder = None
+                self._state = State.IDLE
+                self._refresh()
+            else:
+                self._finish_saving(audio_path)
 
     @Slot(str)
     def _on_mixdown_error(self, error: str) -> None:
         self._cleanup_tmp()
         self._mixdown_done = True
-        QMessageBox.critical(None, "Save failed", f"Could not save recording:\n{error}")
-        if self._naming_done:
+        if self._naming_done and not self._discarded:
+            QMessageBox.critical(None, "Save failed", f"Could not save recording:\n{error}")
             self._finish_saving(None)
 
     def _cleanup_tmp(self) -> None:

@@ -1,0 +1,857 @@
+/* =============================================================
+   Bureau of Applied Science — Field Recorder
+   Visual System, Revision 1
+   Implements BAS-field-recorder-visual.md §3 and §6.
+
+   Apply after Fusion style + BAS palette, before any window is
+   constructed. One sheet, application-wide. Do not call
+   setStyleSheet() on individual widgets.
+
+   TOKENS  (Qt has no variables — these are the literals below)
+     ground        #171512   window ground, warm charcoal
+     ground-raised #1F1C18   inputs, rows, menus, transcript
+     rule          #2E2A25   hairlines — the structural device
+     text          #EDE7DE   warm off-white
+     text-muted    #A39B90   labels, metadata, inactive
+     text-faint    #6E665C   disabled, placeholder, idle
+     accent        #E2761B   Bureau orange — information only
+     accent-dim    #8A4A12   accent at rest
+     error         #C4432B   failure only
+
+   FONTS  (system only — nothing is bundled)
+     ui        Segoe UI                 body, controls, display
+     section   Franklin Gothic Medium   the section label — where the
+                                        brand lives in the type
+     measured  Consolas                 timestamps, durations, sizes
+
+   Family names below are literals. Resolve them through
+   recorder/typography.py at startup and interpolate before
+   setStyleSheet(), so a missing face falls back deliberately
+   instead of being substituted silently by Qt.
+
+   There is no green. Radius is 0. Everywhere.
+   ============================================================= */
+
+/* ---------- Base ------------------------------------------- */
+
+QWidget {
+    background-color: #171512;
+    color: #EDE7DE;
+    font-family: "Segoe UI";
+    font-size: 13px;
+    font-weight: 400;
+}
+
+QWidget:disabled {
+    color: #6E665C;
+}
+
+QMainWindow,
+QDialog {
+    background-color: #171512;
+}
+
+QToolTip {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+/* ---------- Type roles -------------------------------------
+   Assign via widget property:  w.setProperty("role", "section")
+   Re-polish after changing a property at runtime:
+     w.style().unpolish(w); w.style().polish(w)
+   ----------------------------------------------------------- */
+
+QLabel[role="display"] {
+    font-size: 22px;
+    font-weight: 600;
+    color: #EDE7DE;
+}
+
+QLabel[role="section"] {
+    font-family: "Franklin Gothic Medium";
+    font-size: 11px;
+    font-weight: 400;           /* the face is already medium — do not synthesize */
+    letter-spacing: 1.1px;      /* ≈ +0.10em at 11px */
+    color: #A39B90;             /* uppercase the string in Python; Qt ignores text-transform */
+    padding: 0;
+    margin: 0;
+}
+
+QLabel[role="metadata"] {
+    font-size: 11px;
+    color: #A39B90;
+}
+
+QLabel[role="measured"] {
+    font-family: "Consolas";
+    font-size: 12px;
+    color: #A39B90;
+}
+
+QLabel[role="error"] {
+    color: #C4432B;
+}
+
+/* Section rule. Use a QFrame with:
+     f.setFrameShape(QFrame.Shape.HLine)
+     f.setFixedHeight(1)
+     f.setProperty("role", "rule")
+   Sits directly beneath a role="section" label, 8px gap.        */
+
+QFrame[role="rule"] {
+    background-color: #2E2A25;
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+}
+
+/* Status dot. A 6px QFrame, square-cut — not a circle.
+   Set property "state" to: idle | active | error               */
+
+QFrame[role="dot"] {
+    min-width: 6px;  max-width: 6px;
+    min-height: 6px; max-height: 6px;
+    border: none;
+    border-radius: 0;
+    background-color: #6E665C;
+}
+QFrame[role="dot"][state="active"] { background-color: #E2761B; }
+QFrame[role="dot"][state="error"]  { background-color: #C4432B; }
+
+/* ---------- Group boxes -------------------------------------
+   Deleted from the system (visual §6.2). This rule exists only
+   so any surviving QGroupBox is invisible rather than wrong.
+   Replace with: section label + rule + content.
+   ----------------------------------------------------------- */
+
+QGroupBox {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+    margin-top: 22px;   /* reserves space for title (≈14px) + gap below it */
+    padding: 0;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    top: 0;
+    left: 0;
+    padding: 0;
+    font-family: "Franklin Gothic Medium";
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 1.1px;
+    color: #A39B90;
+}
+
+/* ---------- Buttons -----------------------------------------
+   No primary button. The default action is the focused one.
+   ----------------------------------------------------------- */
+
+QPushButton {
+    background-color: transparent;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 0 12px;
+    min-height: 28px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QPushButton:hover {
+    background-color: #1F1C18;
+    border-color: #A39B90;
+}
+
+QPushButton:pressed {
+    background-color: #1F1C18;
+    border-color: #E2761B;
+    color: #E2761B;
+}
+
+QPushButton:focus {
+    border-color: #E2761B;
+    outline: none;
+}
+
+QPushButton:disabled {
+    color: #6E665C;
+    border-color: #2E2A25;
+    background-color: transparent;
+}
+
+QPushButton:checked {
+    border-color: #E2761B;
+    color: #E2761B;
+}
+
+QPushButton[role="destructive"]:hover {
+    border-color: #C4432B;
+    color: #C4432B;
+    background-color: #1F1C18;
+}
+
+QPushButton:flat {
+    border-color: transparent;
+}
+QPushButton:flat:hover {
+    border-color: #2E2A25;
+}
+
+/* ---------- Inputs ------------------------------------------ */
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit,
+QSpinBox,
+QDoubleSpinBox {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 6px;
+    selection-background-color: #8A4A12;
+    selection-color: #EDE7DE;
+}
+
+QLineEdit:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border-color: #E2761B;
+}
+
+QLineEdit:disabled,
+QPlainTextEdit:disabled,
+QTextEdit:disabled {
+    color: #6E665C;
+    background-color: #171512;
+}
+
+QLineEdit[role="search"] {
+    padding: 6px 8px;
+}
+
+QPlainTextEdit[role="transcript"] {
+    background-color: #1F1C18;
+    border: none;
+    padding: 16px;
+    font-size: 13px;
+}
+
+/* Timestamp mode is a machine log — set in the measured face so the
+   stamp / speaker / text columns align without layout work.
+   Toggle via: w.setProperty("mode", "timestamp" | "reading") + re-polish. */
+QPlainTextEdit[role="transcript"][mode="timestamp"] {
+    font-family: "Consolas";
+    font-size: 12px;
+}
+
+QSpinBox::up-button,  QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    background-color: #1F1C18;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    width: 16px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #2E2A25;
+}
+
+/* ---------- Combo box --------------------------------------- */
+
+QComboBox {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 0 8px;
+    min-height: 28px;
+    font-size: 12px;
+}
+
+QComboBox:hover      { border-color: #A39B90; }
+QComboBox:focus      { border-color: #E2761B; }
+QComboBox:disabled   { color: #6E665C; }
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 20px;
+    border: none;
+    background: transparent;
+}
+
+/* Chevron drawn as a rotated square — no image asset. */
+QComboBox::down-arrow {
+    width: 5px;
+    height: 5px;
+    border-left: 1px solid #A39B90;
+    border-bottom: 1px solid #A39B90;
+    margin-right: 6px;
+}
+QComboBox::down-arrow:on {
+    border-left-color: #E2761B;
+    border-bottom-color: #E2761B;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 0;
+    outline: none;
+    selection-background-color: #171512;
+    selection-color: #E2761B;
+}
+
+/* ---------- Tabs --------------------------------------------
+   A rule with one segment lit.
+   ----------------------------------------------------------- */
+
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid #2E2A25;
+    top: -1px;
+    background-color: #171512;
+}
+
+QTabBar {
+    background-color: transparent;
+    qproperty-drawBase: 0;
+}
+
+QTabBar::tab {
+    background-color: transparent;
+    color: #A39B90;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 16px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QTabBar::tab:hover {
+    color: #EDE7DE;
+}
+
+QTabBar::tab:selected {
+    color: #EDE7DE;
+    border-bottom: 2px solid #E2761B;
+}
+
+QTabBar::tab:focus {
+    outline: none;
+    color: #EDE7DE;
+}
+
+/* ---------- Progress ----------------------------------------
+   The rule is the bar. No text inside, no chunk segmentation.
+   Percentage is a separate role="measured" label, right-aligned
+   above the track.
+   ----------------------------------------------------------- */
+
+QProgressBar {
+    background-color: #2E2A25;
+    border: none;
+    border-radius: 0;
+    max-height: 2px;
+    min-height: 2px;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar::chunk {
+    background-color: #E2761B;
+    border-radius: 0;
+    margin: 0;
+}
+
+QProgressBar[state="error"]::chunk {
+    background-color: #C4432B;
+}
+
+/* ---------- Slider (playhead) -------------------------------
+   Handle is a 2×12 vertical bar. It is a playhead on a tape,
+   not a knob.
+   ----------------------------------------------------------- */
+
+QSlider::groove:horizontal {
+    background-color: #2E2A25;
+    border: none;
+    height: 1px;
+    margin: 0;
+}
+
+QSlider::sub-page:horizontal {
+    background-color: #E2761B;
+    height: 2px;
+}
+
+QSlider::add-page:horizontal {
+    background-color: #2E2A25;
+    height: 1px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #E2761B;
+    border: none;
+    border-radius: 0;
+    width: 2px;
+    height: 12px;
+    margin: -6px 0;
+}
+
+QSlider::handle:horizontal:hover,
+QSlider::handle:horizontal:pressed {
+    background-color: #EDE7DE;
+    width: 2px;
+}
+
+QSlider:focus {
+    outline: none;
+}
+
+/* ---------- Menus (tray + context) --------------------------
+   Selection is a left accent bar, not a full-width highlight.
+   ----------------------------------------------------------- */
+
+QMenu {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    padding: 4px 0;
+}
+
+QMenu::item {
+    background-color: transparent;
+    padding: 6px 16px 6px 12px;
+    border-left: 2px solid transparent;
+    font-size: 12px;
+}
+
+QMenu::item:selected {
+    background-color: #171512;
+    border-left: 2px solid #E2761B;
+    color: #EDE7DE;
+}
+
+QMenu::item:disabled {
+    color: #6E665C;
+}
+
+/* Disabled first row = the section label at menu scale.
+   Uppercase the string in code; letter-spacing applied here. */
+QMenu::item:disabled[role="section"] {
+    font-family: "Franklin Gothic Medium";
+    color: #6E665C;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 1.1px;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #2E2A25;
+    margin: 4px 0;
+}
+
+QMenu::icon {
+    padding-left: 8px;
+}
+
+QMenuBar {
+    background-color: #171512;
+    color: #A39B90;
+    border-bottom: 1px solid #2E2A25;
+}
+QMenuBar::item:selected {
+    background-color: #1F1C18;
+    color: #EDE7DE;
+}
+
+/* ---------- Lists and tables --------------------------------
+   No striping. Selection is a left accent bar.
+   ----------------------------------------------------------- */
+
+QTableWidget,
+QTableView,
+QListWidget,
+QListView,
+QTreeView {
+    background-color: #171512;
+    alternate-background-color: #171512;   /* striping is decoration */
+    color: #EDE7DE;
+    border: none;
+    outline: none;
+    gridline-color: #2E2A25;
+    selection-background-color: #1F1C18;
+    selection-color: #EDE7DE;
+}
+
+QTableView::item,
+QListView::item,
+QTreeView::item {
+    background-color: transparent;
+    border: none;
+    border-left: 2px solid transparent;
+    border-bottom: 1px solid #2E2A25;
+    padding: 8px;
+}
+
+QTableView::item:hover,
+QListView::item:hover,
+QTreeView::item:hover {
+    background-color: #1F1C18;
+}
+
+QTableView::item:selected,
+QListView::item:selected,
+QTreeView::item:selected {
+    background-color: #1F1C18;
+    border-left: 2px solid #E2761B;
+    color: #EDE7DE;
+}
+
+QHeaderView {
+    background-color: #171512;
+    border: none;
+}
+
+QHeaderView::section {
+    background-color: #171512;
+    color: #A39B90;
+    border: none;
+    border-bottom: 1px solid #2E2A25;
+    padding: 6px 8px;
+    font-family: "Franklin Gothic Medium";
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 1.1px;
+}
+
+QHeaderView::section:hover {
+    color: #EDE7DE;
+}
+
+QHeaderView::down-arrow,
+QHeaderView::up-arrow {
+    width: 5px;
+    height: 5px;
+    border-left: 1px solid #A39B90;
+    border-bottom: 1px solid #A39B90;
+    margin-right: 6px;
+}
+
+QTableCornerButton::section {
+    background-color: #171512;
+    border: none;
+}
+
+/* ---------- Radio and check ---------------------------------
+   Square-cut. The check indicator is not a circle, because
+   nothing here is.
+   ----------------------------------------------------------- */
+
+QRadioButton,
+QCheckBox {
+    color: #EDE7DE;
+    spacing: 8px;
+    font-size: 12px;
+    background-color: transparent;
+}
+
+QRadioButton:disabled,
+QCheckBox:disabled {
+    color: #6E665C;
+}
+
+QRadioButton::indicator,
+QCheckBox::indicator {
+    width: 12px;
+    height: 12px;
+    border: 1px solid #2E2A25;
+    border-radius: 0;
+    background-color: #1F1C18;
+}
+
+QRadioButton::indicator:hover,
+QCheckBox::indicator:hover {
+    border-color: #A39B90;
+}
+
+QRadioButton::indicator:checked,
+QCheckBox::indicator:checked {
+    border-color: #E2761B;
+    /* 3px inset accent fill — no glyph asset */
+    background-color: #E2761B;
+    image: none;
+}
+
+QRadioButton::indicator:checked:disabled,
+QCheckBox::indicator:checked:disabled {
+    background-color: #8A4A12;
+    border-color: #2E2A25;
+}
+
+QRadioButton:focus,
+QCheckBox:focus {
+    outline: none;
+}
+QRadioButton::indicator:focus,
+QCheckBox::indicator:focus {
+    border-color: #E2761B;
+}
+
+/* ---------- Splitter ---------------------------------------- */
+
+QSplitter::handle {
+    background-color: #2E2A25;
+}
+QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle:vertical   { height: 1px; }
+QSplitter::handle:hover      { background-color: #E2761B; }
+
+/* ---------- Scrollbars --------------------------------------
+   Hairline. Present, not announced.
+   ----------------------------------------------------------- */
+
+QScrollBar:vertical {
+    background-color: #171512;
+    width: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #2E2A25;
+    min-height: 24px;
+    border: none;
+    border-radius: 0;
+    margin: 0 4px 0 4px;      /* 2px visible track */
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #6E665C;
+}
+
+QScrollBar:horizontal {
+    background-color: #171512;
+    height: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #2E2A25;
+    min-width: 24px;
+    border: none;
+    border-radius: 0;
+    margin: 4px 0 4px 0;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #6E665C;
+}
+
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+    border: none;
+    background: none;
+}
+
+QScrollBar::add-page,
+QScrollBar::sub-page {
+    background: none;
+}
+
+/* ---------- Dialog button box ------------------------------- */
+
+QDialogButtonBox {
+    button-layout: 3;         /* Win layout: accept right */
+}
+
+QDialogButtonBox QPushButton {
+    min-width: 76px;
+}
+
+/* ---------- Message box ------------------------------------- */
+
+QMessageBox {
+    background-color: #171512;
+}
+
+QMessageBox QLabel {
+    color: #EDE7DE;
+    font-size: 13px;
+}
+
+/* ---------- Status bar -------------------------------------- */
+
+QStatusBar {
+    background-color: #171512;
+    color: #A39B90;
+    border-top: 1px solid #2E2A25;
+    font-size: 11px;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+/* ---------- Setup wizard step labels -----------------------
+   _StepRow labels in setup_wizard.py. State driven by
+   setProperty("state", ...) + unpolish/polish.
+   Default (pending): muted. Active: accent. Done: muted.
+   Error: error. No green at any state.
+   ----------------------------------------------------------- */
+
+QLabel[role="step-label"] {
+    color: #A39B90;
+    font-size: 12px;
+}
+
+QLabel[role="step-label"][state="active"] {
+    color: #E2761B;
+}
+
+QLabel[role="step-label"][state="done"] {
+    color: #A39B90;
+}
+
+QLabel[role="step-label"][state="error"] {
+    color: #C4432B;
+}
+
+/* ---------- Recording list rows ----------------------------
+   _RecordRow in recording_list.py. Status rule colors are
+   state-driven via setProperty("state", ...) + unpolish/polish.
+   ----------------------------------------------------------- */
+
+/* Row widget and its label children must be transparent so the list
+   item's selection background (#1F1C18 + orange left rule) shows through.
+   QFrame[role="status-rule"] keeps its own explicit color (more specific). */
+QWidget[role="record-row"],
+QWidget[role="record-row"] QLabel {
+    background-color: transparent;
+}
+
+QFrame[role="status-rule"] {
+    background-color: #6E665C;
+    border: none;
+}
+QFrame[role="status-rule"][state="transcribed"] {
+    background-color: #E2761B;
+}
+QFrame[role="status-rule"][state="error"] {
+    background-color: #C4432B;
+}
+
+QLabel[role="record-name"] {
+    font-size: 13px;
+    color: #EDE7DE;
+    padding: 0;
+}
+
+QLabel[role="record-meta"] {
+    font-size: 11px;
+    color: #A39B90;
+    padding: 0;
+}
+
+QLabel[role="record-duration"] {
+    font-family: "Consolas";
+    font-size: 11px;
+    color: #A39B90;
+    padding: 0;
+}
+
+/* ---------- Recording detail panel -------------------------
+   RecordingDetail in recording_detail.py.
+   ----------------------------------------------------------- */
+
+QLabel[role="record-title"] {
+    font-size: 16px;
+    font-weight: 600;
+    color: #EDE7DE;
+    padding: 0;
+}
+
+QLineEdit[role="record-title-edit"] {
+    font-size: 16px;
+    font-weight: 600;
+    color: #EDE7DE;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 0 2px 0;
+}
+QLineEdit[role="record-title-edit"]:focus {
+    border-bottom: 1px solid #E2761B;
+}
+QLineEdit[role="record-title-edit"]:hover:!focus {
+    border-bottom: 1px solid #6E665C;
+}
+
+QLabel[role="empty-state"] {
+    font-size: 13px;
+    color: #6E665C;
+    padding: 0;
+}
+
+QPushButton[role="mode-toggle"] {
+    border-color: transparent;
+    color: #A39B90;
+    font-size: 11px;
+    min-height: 20px;
+    padding: 0 6px;
+}
+QPushButton[role="mode-toggle"]:hover {
+    color: #EDE7DE;
+    border-color: #2E2A25;
+}
+
+QPushButton[role="hold-btn"][active="true"] {
+    border-color: #E2761B;
+    color: #E2761B;
+}
+
+/* ---------- Corner icon buttons ----------------------------
+   Single-character geometric buttons (⚙ etc.) at window edges.
+   Start faint; brighten on hover; accent on press.
+   ----------------------------------------------------------- */
+
+QPushButton[role="icon-btn"] {
+    font-size: 16px;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+    padding: 0;
+    border-color: transparent;
+    color: #6E665C;
+}
+QPushButton[role="icon-btn"]:hover {
+    background-color: #1F1C18;
+    border-color: #2E2A25;
+    color: #A39B90;
+}
+QPushButton[role="icon-btn"]:pressed {
+    background-color: #1F1C18;
+    border-color: #E2761B;
+    color: #E2761B;
+}

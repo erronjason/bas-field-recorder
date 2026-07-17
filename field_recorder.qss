@@ -787,6 +787,23 @@ QLabel[role="record-title"] {
     padding: 0;
 }
 
+QLineEdit[role="record-title-edit"] {
+    font-size: 16px;
+    font-weight: 600;
+    color: #EDE7DE;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 0 2px 0;
+}
+QLineEdit[role="record-title-edit"]:focus {
+    border-bottom: 1px solid #E2761B;
+}
+QLineEdit[role="record-title-edit"]:hover:!focus {
+    border-bottom: 1px solid #6E665C;
+}
+
 QLabel[role="empty-state"] {
     font-size: 13px;
     color: #6E665C;

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -177,11 +178,12 @@ class RecordingDetail(QWidget):
         content_v.setContentsMargins(0, 0, 0, 0)
         content_v.setSpacing(12)
 
-        # Name
-        self._name_lbl = QLabel()
-        self._name_lbl.setProperty("role", "record-title")
-        self._name_lbl.setWordWrap(True)
-        content_v.addWidget(self._name_lbl)
+        # Name — inline editable; saves on Enter or blur
+        self._name_edit = QLineEdit()
+        self._name_edit.setProperty("role", "record-title-edit")
+        self._name_edit.setPlaceholderText("Untitled")
+        self._name_edit.editingFinished.connect(self._on_name_edited)
+        content_v.addWidget(self._name_edit)
 
         # Meta: date + duration
         self._meta_lbl = QLabel()
@@ -319,7 +321,7 @@ class RecordingDetail(QWidget):
         self._data = data
 
         # Name
-        self._name_lbl.setText(data.get("display_name") or "Untitled")
+        self._name_edit.setText(data.get("display_name") or "")
 
         # Meta
         from datetime import datetime
@@ -361,6 +363,14 @@ class RecordingDetail(QWidget):
     # ------------------------------------------------------------------
     # Toolbar actions
     # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_name_edited(self) -> None:
+        if not self._json_path:
+            return
+        name = self._name_edit.text().strip()
+        self._data["display_name"] = name
+        json_store.update_fields(self._json_path, display_name=name)
 
     def _on_identify_speakers(self) -> None:
         if not self._json_path:

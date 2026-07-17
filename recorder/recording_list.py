@@ -98,7 +98,7 @@ def _fmt_date(iso: str) -> str:
     try:
         dt = datetime.fromisoformat(iso)
         local = dt.astimezone()
-        return local.strftime("%b %d, %Y  %H:%M")
+        return local.strftime("%Y-%m-%d  %H:%M")
     except (ValueError, TypeError):
         return ""
 

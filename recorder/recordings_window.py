@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
     QMainWindow,
     QPlainTextEdit,
+    QPushButton,
     QSplitter,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -39,6 +43,7 @@ class RecordingsWindow(QMainWindow):
         super().__init__(parent)
         self._server = server
         self._queue = queue
+        self._open_settings_fn: Optional[Callable] = None
 
         self.setWindowTitle("Field Recorder — Records")
         self.setMinimumSize(800, 500)
@@ -59,7 +64,32 @@ class RecordingsWindow(QMainWindow):
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
 
-        self.setCentralWidget(splitter)
+        # Header strip: settings button at top-right
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(0)
+        header_layout.addStretch()
+        self._settings_btn = QPushButton("⚙")
+        self._settings_btn.setProperty("role", "icon-btn")
+        self._settings_btn.setFixedSize(28, 28)
+        self._settings_btn.setToolTip("Settings")
+        self._settings_btn.clicked.connect(self._on_open_settings)
+        header_layout.addWidget(self._settings_btn)
+
+        rule = QFrame()
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setFixedHeight(1)
+        rule.setProperty("role", "rule")
+
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+        vbox.addWidget(header)
+        vbox.addWidget(rule)
+        vbox.addWidget(splitter)
+        self.setCentralWidget(container)
 
         # Wire list ↔ detail
         self._list.record_selected.connect(self._detail.load_record)
@@ -78,8 +108,19 @@ class RecordingsWindow(QMainWindow):
     # Public
     # ------------------------------------------------------------------
 
+    def set_settings_opener(self, fn: Callable) -> None:
+        self._open_settings_fn = fn
+
     def run_initial_sweep(self) -> None:
         QTimer.singleShot(0, self._run_sweep)
+
+    # ------------------------------------------------------------------
+    # Settings
+    # ------------------------------------------------------------------
+
+    def _on_open_settings(self) -> None:
+        if self._open_settings_fn:
+            self._open_settings_fn()
 
     # ------------------------------------------------------------------
     # Signals

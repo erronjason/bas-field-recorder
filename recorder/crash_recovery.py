@@ -77,4 +77,7 @@ def _recover(session_dir: Path) -> None:
     dlg = NamingDialog(wav_path, notes)
     dlg.exec()
 
+    if dlg.discarded:
+        wav_path.unlink(missing_ok=True)
+
     shutil.rmtree(session_dir, ignore_errors=True)

@@ -60,6 +60,7 @@ def main() -> None:
 
     # ── Tray app ──────────────────────────────────────────────────────
     tray = SystemTrayApp(server, queue, hotkeys, recordings_window=recordings_window)
+    recordings_window.set_settings_opener(tray._open_settings)
 
     if conflicts:
         names = {"start_stop": "Start/Stop", "pause_resume": "Pause/Resume", "notes": "Notes"}

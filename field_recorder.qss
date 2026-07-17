@@ -133,12 +133,15 @@ QGroupBox {
     border: none;
     border-radius: 0;
     margin: 0;
+    margin-top: 22px;   /* reserves space for title (≈14px) + gap below it */
     padding: 0;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
+    subcontrol-position: top left;
+    top: 0;
     left: 0;
-    padding: 0 0 8px 0;
+    padding: 0;
     font-family: "Franklin Gothic Medium";
     font-size: 11px;
     font-weight: 400;
@@ -823,6 +826,32 @@ QPushButton[role="mode-toggle"]:hover {
 }
 
 QPushButton[role="hold-btn"][active="true"] {
+    border-color: #E2761B;
+    color: #E2761B;
+}
+
+/* ---------- Corner icon buttons ----------------------------
+   Single-character geometric buttons (⚙ etc.) at window edges.
+   Start faint; brighten on hover; accent on press.
+   ----------------------------------------------------------- */
+
+QPushButton[role="icon-btn"] {
+    font-size: 16px;
+    min-width: 28px;
+    max-width: 28px;
+    min-height: 28px;
+    max-height: 28px;
+    padding: 0;
+    border-color: transparent;
+    color: #6E665C;
+}
+QPushButton[role="icon-btn"]:hover {
+    background-color: #1F1C18;
+    border-color: #2E2A25;
+    color: #A39B90;
+}
+QPushButton[role="icon-btn"]:pressed {
+    background-color: #1F1C18;
     border-color: #E2761B;
     color: #E2761B;
 }

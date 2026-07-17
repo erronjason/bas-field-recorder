@@ -536,8 +536,8 @@ class RecordingDetail(QWidget):
 def _reveal_path(path: Path) -> None:
     import subprocess
     if sys.platform == "win32":
-        # explorer /select, selects the file in the window; exit 1 on success — don't check
-        subprocess.Popen(["explorer", "/select,", str(path)])
+        # /select, and path must be one token — no space between them
+        subprocess.Popen(["explorer", f"/select,{path}"])
     elif sys.platform == "darwin":
         subprocess.Popen(["open", "-R", str(path)])
     else:

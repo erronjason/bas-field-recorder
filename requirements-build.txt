@@ -1,0 +1,11 @@
+# GUI build dependencies only — used by CI to produce the Windows exe.
+# Heavy backend deps (whisper, torch, pyannote, etc.) are excluded here;
+# they run in the embedded Python backend venv, not in the frozen GUI.
+PySide6>=6.6
+pyaudiowpatch==0.2.12.8
+numpy
+scipy
+soundfile
+Pillow
+python-dotenv
+pyinstaller

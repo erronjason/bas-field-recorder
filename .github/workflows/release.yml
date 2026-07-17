@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: pip install -r requirements-build.txt
+
+      - name: Generate icon
+        run: python make_icon.py
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller --noconfirm recorder_gui.spec
+
+      - name: Zip output
+        run: Compress-Archive -Path dist\FieldRecorder\* -DestinationPath FieldRecorder-${{ github.ref_name }}-windows.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FieldRecorder-${{ github.ref_name }}-windows.zip
+          generate_release_notes: true

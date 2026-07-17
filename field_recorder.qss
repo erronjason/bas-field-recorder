@@ -738,6 +738,14 @@ QLabel[role="step-label"][state="error"] {
    state-driven via setProperty("state", ...) + unpolish/polish.
    ----------------------------------------------------------- */
 
+/* Row widget and its label children must be transparent so the list
+   item's selection background (#1F1C18 + orange left rule) shows through.
+   QFrame[role="status-rule"] keeps its own explicit color (more specific). */
+QWidget[role="record-row"],
+QWidget[role="record-row"] QLabel {
+    background-color: transparent;
+}
+
 QFrame[role="status-rule"] {
     background-color: #6E665C;
     border: none;

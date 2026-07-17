@@ -146,6 +146,7 @@ class _RecordRow(QWidget):
     def __init__(self, row: _RowData, parent=None) -> None:
         super().__init__(parent)
         self._row = row
+        self.setProperty("role", "record-row")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -284,13 +285,8 @@ class RecordingList(QWidget):
         if str(records_dir) not in self._watcher.directories():
             self._watcher.addPath(str(records_dir))
 
-        rows = []
-        for json_path in sorted(
-            records_dir.glob("*.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        ):
-            rows.append(_parse_record(json_path))
+        parsed = [_parse_record(p) for p in records_dir.glob("*.json")]
+        rows = sorted(parsed, key=lambda r: r.created_at or "", reverse=True)
 
         self._all_rows = rows
         self._apply_filter(self._search.text())

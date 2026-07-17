@@ -155,6 +155,9 @@ class SystemTrayApp(QSystemTrayIcon):
         self.setIcon(_icon(self._state))
         self._refresh_tooltip()
 
+        if self._recordings_window:
+            self._recordings_window.set_recording_state(self._state.value)
+
     def _refresh_tooltip(self) -> None:
         parts = ["Field Recorder"]
 
@@ -377,6 +380,9 @@ class SystemTrayApp(QSystemTrayIcon):
     def _on_job_done(self, job_id: str) -> None:
         self.showMessage("Transcription complete", "Record transcribed.", msecs=3000)
         self._refresh_tooltip()
+        if self._recordings_window:
+            job = self._queue._jobs.get(job_id)
+            self._recordings_window.on_transcription_done(job.audio_path if job else "")
 
     @Slot(str, str)
     def _on_job_error(self, job_id: str, error: str) -> None:
@@ -402,6 +408,8 @@ class SystemTrayApp(QSystemTrayIcon):
             self._settings.hotkey_pause_resume,
             self._settings.hotkey_notes,
         )
+        if self._recordings_window:
+            self._recordings_window.update_record_hotkey(self._settings.hotkey_start_stop)
         if conflicts:
             names = {"start_stop": "Start/Stop capture", "pause_resume": "Pause/Resume capture", "notes": "Notes"}
             msg = "\n".join(f"  {names[a]}: {s}" for a, s in conflicts.items())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -64,12 +65,24 @@ class RecordingsWindow(QMainWindow):
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
 
-        # Header strip: settings button at top-right
+        # Header strip: capture controls left, settings right
         header = QWidget()
+        header.setFixedHeight(36)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(0)
+        header_layout.setSpacing(4)
+
+        self._btn_record = QPushButton("Record")
+        self._btn_pause = QPushButton("Pause")
+        self._btn_stop = QPushButton("Stop")
+        for btn in (self._btn_record, self._btn_pause, self._btn_stop):
+            btn.setProperty("role", "header-ctrl")
+            header_layout.addWidget(btn)
+        self._btn_pause.hide()
+        self._btn_stop.hide()
+
         header_layout.addStretch()
+
         self._settings_btn = QPushButton("⚙")
         self._settings_btn.setProperty("role", "icon-btn")
         self._settings_btn.setFixedSize(28, 28)
@@ -110,6 +123,43 @@ class RecordingsWindow(QMainWindow):
 
     def set_settings_opener(self, fn: Callable) -> None:
         self._open_settings_fn = fn
+
+    def set_recording_controls(
+        self,
+        start_fn: Callable,
+        pause_fn: Callable,
+        stop_fn: Callable,
+        hotkey: str = "",
+    ) -> None:
+        self._btn_record.clicked.connect(start_fn)
+        self._btn_pause.clicked.connect(pause_fn)
+        self._btn_stop.clicked.connect(stop_fn)
+        self.update_record_hotkey(hotkey)
+
+    def update_record_hotkey(self, hotkey: str) -> None:
+        tip = f"Start capture  {hotkey}" if hotkey else "Start capture"
+        self._btn_record.setToolTip(tip)
+
+    def set_recording_state(self, state: str) -> None:
+        is_idle = state == "idle"
+        is_live = state in ("recording", "paused", "saving")
+        self._btn_record.setVisible(is_idle)
+        self._btn_pause.setVisible(is_live)
+        self._btn_stop.setVisible(is_live)
+        self._btn_pause.setText("Resume" if state == "paused" else "Pause")
+
+    def refresh_list(self) -> None:
+        self._list._rebuild()
+
+    def on_transcription_done(self, audio_path: str) -> None:
+        """Rebuild the list and reload the detail panel if that record is open."""
+        self._list._rebuild()
+        if not audio_path:
+            return
+        data = json_store.load(Path(audio_path).with_suffix(".json"))
+        record_id = data.get("record_id", "")
+        if record_id and self._detail.loaded_record_id == record_id:
+            self._detail.load_record(record_id)
 
     def run_initial_sweep(self) -> None:
         QTimer.singleShot(0, self._run_sweep)

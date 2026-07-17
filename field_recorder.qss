@@ -830,6 +830,18 @@ QPushButton[role="hold-btn"][active="true"] {
     color: #E2761B;
 }
 
+/* ---------- Header capture controls ------------------------
+   Compact buttons in the Records window header bar.
+   Override the base min/max-height to fit the 36px strip.
+   ----------------------------------------------------------- */
+
+QPushButton[role="header-ctrl"] {
+    min-height: 26px;
+    max-height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
+}
+
 /* ---------- Corner icon buttons ----------------------------
    Single-character geometric buttons (⚙ etc.) at window edges.
    Start faint; brighten on hover; accent on press.

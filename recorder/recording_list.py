@@ -192,9 +192,9 @@ class _RecordRow(QWidget):
 # ---------------------------------------------------------------------------
 
 class RecordingList(QWidget):
-    """Live list of records. Emits record_selected(record_id) on selection change."""
+    """Live list of records. Emits record_selected(record_id, json_filename) on selection change."""
 
-    record_selected = Signal(str)   # record_id, or "" when selection cleared
+    record_selected = Signal(str, str)   # (record_id, json_filename) — both "" when cleared
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -308,6 +308,7 @@ class RecordingList(QWidget):
             widget = _RecordRow(row)
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
             item.setData(Qt.ItemDataRole.UserRole, row.record_id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, row.filename)
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)
 
@@ -324,7 +325,7 @@ class RecordingList(QWidget):
 
         if not restored and prev_id:
             self._selected_id = ""
-            self.record_selected.emit("")
+            self.record_selected.emit("", "")
 
         # Restore scroll
         self._list.verticalScrollBar().setValue(scroll_val)
@@ -351,12 +352,13 @@ class RecordingList(QWidget):
         item = self._list.currentItem()
         if item is None:
             self._selected_id = ""
-            self.record_selected.emit("")
+            self.record_selected.emit("", "")
             return
         rid = item.data(Qt.ItemDataRole.UserRole) or ""
+        filename = item.data(Qt.ItemDataRole.UserRole + 1) or ""
         if rid != self._selected_id:
             self._selected_id = rid
-            self.record_selected.emit(rid)
+            self.record_selected.emit(rid, filename)
 
     # ------------------------------------------------------------------
     # WindowActivate reconcile

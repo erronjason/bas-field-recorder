@@ -261,9 +261,9 @@ class RecordingDetail(QWidget):
     def player_bar(self) -> PlayerBar:
         return self._player_bar
 
-    @Slot(str)
-    def load_record(self, record_id: str) -> None:
-        if not record_id:
+    @Slot(str, str)
+    def load_record(self, record_id: str, json_filename: str = "") -> None:
+        if not record_id and not json_filename:
             self._player_bar.release()
             self._record_id = ""
             self._data = {}
@@ -272,11 +272,24 @@ class RecordingDetail(QWidget):
             self._show_empty()
             return
 
-        # Locate JSON by scanning records dir for matching record_id
-        json_path = self._find_json(record_id)
+        # Prefer direct path from filename (fast); fall back to full-dir scan
+        if json_filename:
+            candidate = user_data.records_dir() / json_filename
+            json_path = candidate if candidate.exists() else self._find_json(record_id)
+        else:
+            json_path = self._find_json(record_id)
+
         if json_path is None:
-            self._show_error(f"Record {record_id!r} not found on disk.")
+            self._show_error(f"Record not found on disk.")
             return
+
+        # Derive record_id from file when not provided (e.g. pre-migration records)
+        if not record_id:
+            import json as _json
+            try:
+                record_id = _json.loads(json_path.read_text(encoding="utf-8")).get("record_id", "") or json_path.stem
+            except Exception:
+                record_id = json_path.stem
 
         self._save_notes_immediate()
         self._player_bar.release()

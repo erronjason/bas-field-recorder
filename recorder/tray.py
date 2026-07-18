@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
@@ -86,6 +86,12 @@ class SystemTrayApp(QSystemTrayIcon):
 
         self._build_menu()
         self._refresh()
+
+        # Single-click timer: fire start/stop after the double-click window passes
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.setInterval(300)
+        self._click_timer.timeout.connect(self._on_single_click)
 
         self.activated.connect(self._on_activated)
         self.show()
@@ -176,6 +182,8 @@ class SystemTrayApp(QSystemTrayIcon):
     # ------------------------------------------------------------------
 
     def _start_recording(self) -> None:
+        if self._recorder is not None:
+            return  # already recording or streams opening
         if self._backend is None:
             self._backend = get_audio_backend()
 
@@ -447,11 +455,19 @@ class SystemTrayApp(QSystemTrayIcon):
 
     @Slot(QSystemTrayIcon.ActivationReason)
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            if self._state == State.IDLE:
-                self._start_recording()
-            elif self._state in (State.RECORDING, State.PAUSED):
-                self._stop_recording()
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # Delay so a double-click can cancel and open records instead
+            self._click_timer.start()
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._click_timer.stop()
+            self._open_records()
+
+    @Slot()
+    def _on_single_click(self) -> None:
+        if self._state == State.IDLE:
+            self._start_recording()
+        elif self._state in (State.RECORDING, State.PAUSED):
+            self._stop_recording()
 
     # ------------------------------------------------------------------
     # Helpers

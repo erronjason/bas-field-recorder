@@ -1,9 +1,11 @@
-# BAS - Field Recorder - Model 1
+ # Field Recorder - Model 1
+ ### An instrument from the Bureau of Applied Science
 
 Captures calls and meetings as structured records.
 
-### *Bureau of Applied Science - Field Recorder - Model 1*
 Windows tray application. On-device transcription by default.
+
+**Download:** [Field Recorder v1.0.0 for Windows](https://github.com/erronjason/bas-field-recorder/releases/download/v1.0.0/FieldRecorder-v1.0.0-windows.zip) — Windows 10/11 (64-bit) only. Extract the ZIP and run `FieldRecorder.exe`; no Python or separate install required. See [Installation](#installation) for details.
 
 ---
 
@@ -105,11 +107,16 @@ Linux: `~/.local/share/bureau-of-applied-science/`
 
 ## Installation
 
-**Requirements:** Windows 10/11.
+**Currently Windows-only** — Windows 10/11 (64-bit). macOS and Linux are not yet supported by the packaged release; on those platforms, run [from source](#building-from-source).
 
 ### Release binary
 
-Download `FieldRecorder-vX.X.X-windows.zip` from [Releases](https://github.com/erronjason/bas-field-recorder/releases), extract, and run `FieldRecorder.exe`. No Python required.
+Download the latest release:
+
+- Direct: **[FieldRecorder-v1.0.0-windows.zip](https://github.com/erronjason/bas-field-recorder/releases/download/v1.0.0/FieldRecorder-v1.0.0-windows.zip)** (v1.0.0)
+- Or browse every build on the [Releases page](https://github.com/erronjason/bas-field-recorder/releases/latest).
+
+Extract the ZIP and run `FieldRecorder.exe`. No Python or separate install required.
 
 On first launch, the setup wizard installs the on-device transcription engine into a self-contained embedded Python runtime (~10 MB download). The full stack - PyTorch, whisperX, pyannote - is approximately 3–5 GB.
 

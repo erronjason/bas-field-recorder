@@ -7,6 +7,70 @@ Windows tray application. On-device transcription by default.
 
 ---
 
+## Using Field Recorder
+
+Field Recorder lives in your Windows system tray. It captures a call or meeting — your microphone **and** the system audio you hear — mixes them into a single recording, and transcribes it into a searchable record with speaker labels. Audio stays on your machine by default.
+
+### Record a call
+
+1. **Start** — press `Ctrl+Shift+R`, or single-click the tray icon. Capture begins immediately and the tray icon turns orange.
+2. **Stop** — press `Ctrl+Shift+R` again (or single-click the tray icon). The naming dialog opens.
+3. **Name and save** — give the record a name, add any notes, and click **Save**. Leave the name blank to use the date and time. (Or **Skip** to save it unnamed, **Discard** to throw it away.)
+
+   <img src="docs/Record-save.png" alt="Naming a record" width="420">
+
+That is the whole workflow. The record is transcribed automatically in the background — nothing else is required.
+
+### Read and play a record
+
+Double-click the tray icon to open **Records**.
+
+![The Records window](docs/Records-interface.png)
+
+- **Left** — every record, newest first. Type in **Filter records** to search by name.
+- **Right** — the selected record. Press **Play** to listen, read the **Transcript** (toggle **Timestamps** / **Reading**), and edit **Notes** (saved as you type).
+- Click a record's name to rename it.
+- **Identify speakers** — put real names to `Speaker 1`, `Speaker 2`, …
+- **Retranscribe** — run transcription again, e.g. after changing the model or backend.
+- **Retention hold** — protect a record from the automatic cleanup policy.
+- **Reveal** / **Delete** — show the file on disk / remove the record.
+
+At the top right: the **⚙** gear opens Settings and the **?** button reopens the built-in how-to. While records are transcribing, a **Processing N** count appears there.
+
+### Hotkeys
+
+These work from any application, even while Field Recorder is in the tray:
+
+| Hotkey | Action |
+|---|---|
+| `Ctrl+Shift+R` | Start / stop capture |
+| `Ctrl+Shift+T` | Take notes |
+| `Ctrl+Shift+Y` | Pause / resume capture |
+
+Remap any of them in **Settings → Hotkeys**.
+
+### Tray icon
+
+- **Single-click** — start or stop capture
+- **Double-click** — open Records
+- **Right-click** — full menu (pause, notes, transcription queue, quit)
+
+### Settings
+
+Open Settings with the **⚙** gear in the Records window.
+
+![Settings](docs/Settings.png)
+
+- **Recording** — choose the microphone and the system-audio (loopback) device.
+- **Transcription** — on-device (default, private) or off-device (AssemblyAI); model and language.
+- **Hotkeys** — remap the shortcuts above.
+- **Service** — transcription-engine status and reinstall.
+- **Data** — retention policy and a shortcut to the data directory.
+
+> On first launch, Field Recorder downloads and installs its on-device transcription engine (~3–5 GB). See [Installation](#installation) below.
+
+---
+
 ## Components
 
 | Component | Description |
@@ -100,8 +164,8 @@ The icon uses the BAS three-line mark. All bars change color together to signal 
 | Hotkey | Action |
 |---|---|
 | `Ctrl+Shift+R` | Start / Stop capture |
-| `Ctrl+Shift+P` | Pause / Resume capture |
-| `Ctrl+Shift+N` | Open notes panel |
+| `Ctrl+Shift+T` | Take notes |
+| `Ctrl+Shift+Y` | Pause / Resume capture |
 
 Configurable in **Settings → Hotkeys**.
 

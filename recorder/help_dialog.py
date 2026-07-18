@@ -67,6 +67,26 @@ class HelpDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
+        start_stop = hotkeys.get("start_stop", "the record hotkey")
+
+        # ── Getting started ───────────────────────────────────────────
+        layout.addWidget(_section_label("Getting started"))
+        layout.addWidget(_rule())
+        layout.addWidget(_line(
+            "Field Recorder captures your microphone and your system audio together, "
+            "then transcribes the recording into a searchable record."
+        ))
+        layout.addWidget(_line(
+            f"1.  Press {start_stop}, or single-click the tray icon, to start capturing."
+        ))
+        layout.addWidget(_line(
+            "2.  Press it again to stop, then name the record and add notes."
+        ))
+        layout.addWidget(_line(
+            "3.  It transcribes on its own. Double-click the tray icon to open Records "
+            "and read or play it."
+        ))
+
         # ── Global hotkeys ────────────────────────────────────────────
         layout.addWidget(_section_label("Global hotkeys"))
         layout.addWidget(_rule())

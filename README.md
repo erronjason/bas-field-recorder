@@ -220,6 +220,21 @@ The plain-text sidecar (`.txt`) is derived from `segments`: `[Speaker N] (Xs –
 
 ---
 
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The source may be used, modified, and redistributed under those terms.
+The Bureau of Applied Science name, the BAS mark, and the brand assets in
+`recorder/resources/brand/` are excluded — Apache-2.0 §6 does not grant
+trademark rights. A derivative work may not present itself as a product of
+Bureau of Applied Science.
+
+The transcription engine is installed at runtime and is governed by its own
+licenses. See [NOTICE](NOTICE) for the component list.
+
+---
+
 ## Accuracy
 
 Speaker labels are detected from audio features. The instrument has no way to know who a speaker is by name; `speaker_names` is populated by the operator.

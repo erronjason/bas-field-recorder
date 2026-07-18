@@ -1,0 +1,89 @@
+Bureau of Applied Science — Field Recorder
+Copyright 2026 Bureau of Applied Science, Ltd.
+
+This product is licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+-------------------------------------------------------------------------------
+TRADEMARKS
+-------------------------------------------------------------------------------
+
+The name "Bureau of Applied Science," the BAS mark, and the brand assets in
+recorder/resources/brand/ are not licensed under the Apache License and are
+not subject to its terms. Apache-2.0 §6 does not grant trademark rights.
+A Derivative Work may not present itself as a product of Bureau of Applied
+Science or use the BAS mark in any form.
+
+-------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS — GUI (shipped in the distributable binary)
+-------------------------------------------------------------------------------
+
+PySide6 / Qt 6
+  License:   GNU Lesser General Public License v3.0 (LGPL-3.0)
+  Source:    https://code.qt.io/
+
+PyAudioWPatch
+  License:   MIT
+  Source:    https://github.com/s0d3s/PyAudioWPatch
+
+NumPy
+  License:   BSD-3-Clause
+  Source:    https://github.com/numpy/numpy
+
+SciPy
+  License:   BSD-3-Clause
+  Source:    https://github.com/scipy/scipy
+
+SoundFile
+  License:   BSD-3-Clause
+  Source:    https://github.com/bastibe/python-soundfile
+
+Pillow
+  License:   HPND (Historical Permission Notice and Disclaimer)
+  Source:    https://github.com/python-pillow/Pillow
+
+python-dotenv
+  License:   BSD-3-Clause
+  Source:    https://github.com/theskumar/python-dotenv
+
+PyInstaller (build tool — not shipped; bootloader exception applies)
+  License:   GPL-2.0 with Bootloader Exception
+  Source:    https://github.com/pyinstaller/pyinstaller
+
+-------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS — TRANSCRIPTION BACKEND (installed at runtime)
+-------------------------------------------------------------------------------
+
+The on-device transcription engine is installed separately by the setup
+wizard into a self-contained embedded Python runtime. It is not bundled
+in this source distribution. Each component is governed by its own license.
+
+openai-whisper
+  License:   MIT
+  Source:    https://github.com/openai/whisper
+
+whisperX
+  License:   MIT
+  Source:    https://github.com/m-bain/whisperX
+
+pyannote.audio
+  License:   MIT
+  Source:    https://github.com/pyannote/pyannote-audio
+  Note:      Use requires acceptance of model terms at
+             https://huggingface.co/pyannote/speaker-diarization-3.1
+
+PyTorch
+  License:   BSD-3-Clause
+  Source:    https://github.com/pytorch/pytorch
+
+FastAPI
+  License:   MIT
+  Source:    https://github.com/tiangolo/fastapi
+
+uvicorn
+  License:   BSD-3-Clause
+  Source:    https://github.com/encode/uvicorn
+
+AssemblyAI Python SDK (optional, off-device backend)
+  License:   Apache-2.0
+  Source:    https://github.com/AssemblyAI/assemblyai-python-sdk

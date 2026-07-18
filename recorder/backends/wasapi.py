@@ -70,6 +70,46 @@ class WasapiBackend(AudioBackend):
             stream_callback=callback,
         )
 
+    def open_loopback_keepalive(self, device_info: dict):
+        """Play silence to the render device behind the loopback so WASAPI
+        keeps delivering capture packets while the system is otherwise
+        silent — without this, an idle endpoint produces no loopback data
+        at all and recordings collapse to whatever audio happened to play.
+        """
+        try:
+            wasapi = self._pa.get_host_api_info_by_type(pyaudio.paWASAPI)
+            base_name = device_info.get("name", "").replace(" [Loopback]", "")
+            target = None
+            for i in range(self._pa.get_device_count()):
+                info = self._pa.get_device_info_by_index(i)
+                if (
+                    info.get("hostApi") == wasapi["index"]
+                    and info.get("maxOutputChannels", 0) > 0
+                    and info.get("name") == base_name
+                ):
+                    target = info
+                    break
+            if target is None:
+                target = self._pa.get_device_info_by_index(wasapi["defaultOutputDevice"])
+
+            channels = min(2, max(1, int(target["maxOutputChannels"])))
+            bytes_per_frame = 2 * channels
+
+            def _silence(_in_data, frame_count, _time_info, _status):
+                return (b"\x00" * (frame_count * bytes_per_frame), pyaudio.paContinue)
+
+            return self._pa.open(
+                format=pyaudio.paInt16,
+                channels=channels,
+                rate=int(target["defaultSampleRate"]),
+                output=True,
+                output_device_index=int(target["index"]),
+                frames_per_buffer=1024,
+                stream_callback=_silence,
+            )
+        except Exception:
+            return None
+
     def close_streams(self, *streams) -> None:
         for stream in streams:
             if stream is None:

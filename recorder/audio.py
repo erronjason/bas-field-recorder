@@ -35,6 +35,12 @@ class AudioBackend(ABC):
     @abstractmethod
     def open_loopback_stream(self, device_info: dict, callback): ...
 
+    def open_loopback_keepalive(self, device_info: dict):
+        """Optional: keep the render endpoint active so loopback capture
+        keeps delivering frames during system silence. Returns a stream
+        to pass to close_streams(), or None."""
+        return None
+
     @abstractmethod
     def close_streams(self, *streams) -> None: ...
 
@@ -98,8 +104,15 @@ def do_mixdown(tmp_path: Path, wav_path: Path) -> None:
     elif len(lb) == 0:
         mixed = mic
     else:
-        n = min(len(mic), len(lb))
-        mixed = np.clip((mic[:n] + lb[:n]) * 0.5, -1.0, 1.0)
+        # Pad the shorter stream with silence rather than truncating —
+        # WASAPI loopback can deliver fewer frames than the mic if the
+        # render endpoint went idle, and the mic audio must be preserved.
+        n = max(len(mic), len(lb))
+        if len(mic) < n:
+            mic = np.pad(mic, (0, n - len(mic)))
+        if len(lb) < n:
+            lb = np.pad(lb, (0, n - len(lb)))
+        mixed = np.clip((mic + lb) * 0.5, -1.0, 1.0)
 
     mixed_i16 = (mixed * 32767.0).astype(np.int16)
 
@@ -221,11 +234,12 @@ class RecorderThread(QThread):
         try:
             mic_stream = self._backend.open_mic_stream(mic_info, mic_callback)
             lb_stream = self._backend.open_loopback_stream(lb_info, lb_callback)
+            keepalive = self._backend.open_loopback_keepalive(lb_info)
 
             self.recording_started.emit()
             self._stop_event.wait()
 
-            self._backend.close_streams(mic_stream, lb_stream)
+            self._backend.close_streams(mic_stream, lb_stream, keepalive)
         except Exception as exc:
             self.error.emit(str(exc))
         finally:

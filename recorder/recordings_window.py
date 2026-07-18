@@ -152,14 +152,17 @@ class RecordingsWindow(QMainWindow):
         self._list._rebuild()
 
     def on_transcription_done(self, audio_path: str) -> None:
-        """Rebuild the list and reload the detail panel if that record is open."""
+        """Refresh the list (preserving scroll/selection) and, if the just-
+        transcribed record is the one open in the detail panel, refresh it in
+        place so the new transcript appears without disturbing playback or the
+        user's in-progress notes."""
         self._list._rebuild()
         if not audio_path:
             return
         data = json_store.load(Path(audio_path).with_suffix(".json"))
         record_id = data.get("record_id", "")
         if record_id and self._detail.loaded_record_id == record_id:
-            self._detail.load_record(record_id)
+            self._detail.refresh_after_transcription(record_id)
 
     def run_initial_sweep(self) -> None:
         QTimer.singleShot(0, self._run_sweep)

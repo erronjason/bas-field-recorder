@@ -137,6 +137,7 @@ class RecordingDetail(QWidget):
         self._flac_path: Optional[Path] = None
         self._transcript_mode: str = "timestamps"
         self._notes_dirty: bool = False
+        self._preserve_session: bool = False
 
         self._load_thread: Optional[QThread] = None
         self._load_worker: Optional[_LoadWorker] = None
@@ -300,6 +301,19 @@ class RecordingDetail(QWidget):
         self._show_content()
         self._start_load(json_path)
 
+    def refresh_after_transcription(self, record_id: str) -> None:
+        """Re-read this record to show a newly-arrived transcript without
+        disturbing the user's session: keeps audio playback and the live
+        notes/name edits intact, and persists those edits so they win over
+        whatever the post-transcription restore wrote to disk.
+        """
+        if not record_id or record_id != self._record_id or self._json_path is None:
+            return
+        # Live notes are the source of truth — persist them (and refresh the
+        # crash-fallback snapshot) before re-reading the transcript.
+        self._save_notes_immediate()
+        self._start_load(self._json_path, preserve_session=True)
+
     # ------------------------------------------------------------------
     # Internal: load
     # ------------------------------------------------------------------
@@ -315,7 +329,10 @@ class RecordingDetail(QWidget):
                 pass
         return None
 
-    def _start_load(self, json_path: Path) -> None:
+    def _start_load(self, json_path: Path, preserve_session: bool = False) -> None:
+        # preserve_session: keep audio playback and the live notes/name edits
+        # (used when refreshing in place after transcription).
+        self._preserve_session = preserve_session
         # Abort any in-flight load
         if self._load_thread and self._load_thread.isRunning():
             self._load_thread.quit()
@@ -331,10 +348,12 @@ class RecordingDetail(QWidget):
 
     @Slot(dict, str)
     def _on_load_finished(self, data: dict, transcript: str) -> None:
+        preserve = self._preserve_session
         self._data = data
 
-        # Name
-        self._name_edit.setText(data.get("display_name") or "")
+        # Name — don't clobber an in-progress rename
+        if not self._name_edit.hasFocus():
+            self._name_edit.setText(data.get("display_name") or "")
 
         # Meta
         from datetime import datetime
@@ -352,8 +371,9 @@ class RecordingDetail(QWidget):
         meta = "  |  ".join(x for x in [date_str, dur_str] if x)
         self._meta_lbl.setText(meta)
 
-        # Player
-        if self._flac_path and self._flac_path.exists():
+        # Player — keep current playback untouched when refreshing in place
+        # (the audio file is unchanged by transcription)
+        if not preserve and self._flac_path and self._flac_path.exists():
             self._player_bar.load(self._flac_path, data.get("duration_seconds"))
 
         # Transcript
@@ -361,10 +381,12 @@ class RecordingDetail(QWidget):
         self._btn_mode.setText("Reading")
         self._transcript.setPlainText(transcript)
 
-        # Notes (block signal to avoid auto-save loop)
-        self._notes.blockSignals(True)
-        self._notes.setPlainText(data.get("notes") or "")
-        self._notes.blockSignals(False)
+        # Notes — preserve the live editor (and cursor) on an in-place refresh;
+        # the user's notes were already persisted before the reload
+        if not preserve:
+            self._notes.blockSignals(True)
+            self._notes.setPlainText(data.get("notes") or "")
+            self._notes.blockSignals(False)
 
         # Retention hold button
         self._btn_hold.blockSignals(True)
@@ -377,13 +399,23 @@ class RecordingDetail(QWidget):
     # Toolbar actions
     # ------------------------------------------------------------------
 
+    def _persist(self, **fields) -> None:
+        """Write GUI-owned fields to the record, and mirror them into the
+        crash-fallback snapshot if a transcription is in flight — so edits made
+        while transcribing aren't reverted when the record is restored."""
+        if not self._json_path:
+            return
+        json_store.update_fields(self._json_path, **fields)
+        if self._flac_path:
+            json_store.update_gui_snapshot(self._flac_path, **fields)
+
     @Slot()
     def _on_name_edited(self) -> None:
         if not self._json_path:
             return
         name = self._name_edit.text().strip()
         self._data["display_name"] = name
-        json_store.update_fields(self._json_path, display_name=name)
+        self._persist(display_name=name)
 
     def _on_identify_speakers(self) -> None:
         if not self._json_path:
@@ -405,7 +437,7 @@ class RecordingDetail(QWidget):
         dlg = SpeakerDialog(speaker_names, parent=self)
         if dlg.exec() == SpeakerDialog.DialogCode.Accepted:
             self._data["speaker_names"] = dlg.result_names
-            json_store.update_fields(self._json_path, speaker_names=dlg.result_names)
+            self._persist(speaker_names=dlg.result_names)
             # Refresh transcript with new names
             transcript = _build_transcript(self._data, mode=self._transcript_mode)
             self._transcript.setPlainText(transcript)
@@ -433,6 +465,7 @@ class RecordingDetail(QWidget):
             notes=self._notes.toPlainText(),
             speaker_names=self._data.get("speaker_names") or {},
         )
+        # enqueue() below captures a fresh snapshot from the just-updated stub
 
         # Reload settings at enqueue time (not at window-open time)
         from .settings import Settings
@@ -495,7 +528,7 @@ class RecordingDetail(QWidget):
         if not self._json_path:
             return
         self._data["retain"] = checked
-        json_store.update_fields(self._json_path, retain=checked)
+        self._persist(retain=checked)
         self._btn_hold.setText("Hold applied" if checked else "Retention hold")
         self._btn_hold.setProperty("active", str(checked).lower())
         # Re-polish so QSS picks up the property change
@@ -525,9 +558,10 @@ class RecordingDetail(QWidget):
     @Slot()
     def _save_notes(self) -> None:
         if self._json_path and self._record_id:
-            json_store.update_fields(self._json_path, notes=self._notes.toPlainText())
+            text = self._notes.toPlainText()
+            self._persist(notes=text)
             if self._data:
-                self._data["notes"] = self._notes.toPlainText()
+                self._data["notes"] = text
 
     def _save_notes_immediate(self) -> None:
         self._notes_timer.stop()

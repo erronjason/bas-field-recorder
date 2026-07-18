@@ -123,6 +123,27 @@ def read_gui_snapshot(audio_path: Path) -> dict:
     return load(gui_snapshot_path(audio_path))
 
 
+def update_gui_snapshot(audio_path: Path, **fields) -> None:
+    """Merge fields into an existing crash-fallback snapshot, if one exists.
+
+    Called when the user edits a GUI-owned field (name, notes, …) so the
+    snapshot restored after transcription reflects the latest edit rather
+    than the value captured at enqueue time. No-op when no transcription is
+    in flight for this record (no snapshot file present).
+    """
+    path = gui_snapshot_path(audio_path)
+    if not path.exists():
+        return
+    data = load(path)
+    if not data:
+        return
+    data.update(fields)
+    try:
+        _write(path, data)
+    except OSError as e:
+        log.error("Could not update GUI snapshot for %s: %s", audio_path.name, e)
+
+
 def clear_gui_snapshot(audio_path: Path) -> None:
     try:
         gui_snapshot_path(audio_path).unlink(missing_ok=True)

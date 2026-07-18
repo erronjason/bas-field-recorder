@@ -10,6 +10,7 @@ from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
@@ -83,6 +84,24 @@ class RecordingsWindow(QMainWindow):
 
         header_layout.addStretch()
 
+        # Queue-processing indicator (left of settings): "▪ Processing N"
+        self._queue_indicator = QWidget()
+        qi = QHBoxLayout(self._queue_indicator)
+        qi.setContentsMargins(0, 0, 0, 0)
+        qi.setSpacing(6)
+        self._queue_dot = QFrame()
+        self._queue_dot.setProperty("role", "dot")
+        self._queue_dot.setProperty("state", "active")
+        qi.addWidget(self._queue_dot)
+        self._queue_word = QLabel("Processing")
+        self._queue_word.setProperty("role", "metadata")
+        qi.addWidget(self._queue_word)
+        self._queue_count = QLabel()
+        self._queue_count.setProperty("role", "measured")
+        qi.addWidget(self._queue_count)
+        header_layout.addWidget(self._queue_indicator)
+        self._queue_indicator.hide()
+
         self._settings_btn = QPushButton("⚙")
         self._settings_btn.setProperty("role", "icon-btn")
         self._settings_btn.setFixedSize(28, 28)
@@ -107,6 +126,10 @@ class RecordingsWindow(QMainWindow):
         # Wire list ↔ detail
         self._list.record_selected.connect(self._detail.load_record)
         self._detail.record_deleted.connect(self._on_record_deleted)
+
+        # Live transcription-queue indicator
+        self._queue.queue_updated.connect(self._refresh_queue_indicator)
+        self._refresh_queue_indicator()
 
         # Keyboard shortcuts
         self._install_shortcuts()
@@ -166,6 +189,26 @@ class RecordingsWindow(QMainWindow):
 
     def run_initial_sweep(self) -> None:
         QTimer.singleShot(0, self._run_sweep)
+
+    def _refresh_queue_indicator(self) -> None:
+        """Reflect how many records are queued or transcribing. Hidden at zero."""
+        n = self._queue.active_count()
+        if n == 0:
+            self._queue_indicator.hide()
+            return
+        paused = self._queue.is_paused()
+        self._queue_word.setText("Paused" if paused else "Processing")
+        self._queue_count.setText(str(n))
+        self._queue_dot.setProperty("state", "" if paused else "active")
+        # Re-polish so the QSS state change takes effect at runtime
+        self._queue_dot.style().unpolish(self._queue_dot)
+        self._queue_dot.style().polish(self._queue_dot)
+        noun = "record" if n == 1 else "records"
+        self._queue_indicator.setToolTip(
+            f"Transcription queue paused — {n} {noun}" if paused
+            else f"Transcribing {n} {noun}"
+        )
+        self._queue_indicator.show()
 
     # ------------------------------------------------------------------
     # Settings

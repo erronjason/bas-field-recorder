@@ -33,6 +33,9 @@ def main() -> None:
     # ── One-shot schema migration ─────────────────────────────────────
     json_store.migrate_existing_records()
 
+    # ── Restore name/notes from any transcription interrupted by a crash ─
+    json_store.reconcile_gui_snapshots()
+
     # ── First-run setup wizard ────────────────────────────────────────
     if not backend_ready():
         wizard = SetupWizard()

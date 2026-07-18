@@ -89,8 +89,10 @@ class TranscriptionQueue(QObject):
         stub = json_store.load(json_path) if json_path.exists() else {}
 
         # Snapshot the GUI-owned fields now, while the stub still holds the
-        # user's name/notes — the transcriber will overwrite the JSON.
+        # user's name/notes — the transcriber will overwrite the JSON. Mirror
+        # it to disk so the fields survive a crash mid-transcription.
         gui_snapshot = {k: stub[k] for k in _GUI_FIELDS if k in stub}
+        json_store.write_gui_snapshot(audio_path, gui_snapshot)
 
         body = {
             "audio_path": str(audio_path),
@@ -143,6 +145,7 @@ class TranscriptionQueue(QObject):
         self._server.delete(f"/jobs/{job_id}")
         if job_id in self._jobs:
             self._jobs[job_id].status = "cancelled"
+            self._clear_snapshot(self._jobs[job_id])
         self.queue_updated.emit()
 
     def pause_queue(self) -> None:
@@ -187,15 +190,32 @@ class TranscriptionQueue(QObject):
             local = self._jobs.get(job_id)
 
             if local is None:
-                # Job exists on server but not locally (server restarted, GUI re-attached)
-                self._jobs[job_id] = QueuedJob(
+                # Job exists on server but not locally (app restarted, GUI
+                # re-attached). Reload the crash-fallback snapshot from disk so
+                # name/notes can still be restored when the job finishes.
+                audio_path = sj.get("audio_path", "")
+                snapshot = (
+                    json_store.read_gui_snapshot(Path(audio_path))
+                    if audio_path
+                    else {}
+                )
+                local = QueuedJob(
                     job_id=job_id,
-                    audio_path=sj.get("audio_path", ""),
+                    audio_path=audio_path,
                     display_name=sj.get("display_name", ""),
                     status=status,
                     error=sj.get("error"),
+                    gui_snapshot=snapshot or None,
                 )
+                self._jobs[job_id] = local
                 changed = True
+                # A re-attached job may already be done/errored — handle it now
+                # rather than waiting for a status change that never comes.
+                if status == "done":
+                    self._on_job_done(local)
+                elif status == "error":
+                    self._clear_snapshot(local)
+                    self.job_error.emit(job_id, local.error or "Unknown error")
                 continue
 
             if local.status == status:
@@ -208,6 +228,7 @@ class TranscriptionQueue(QObject):
             if status == "done":
                 self._on_job_done(local)
             elif status == "error":
+                self._clear_snapshot(local)
                 self.job_error.emit(job_id, local.error or "Unknown error")
 
         if changed:
@@ -218,13 +239,23 @@ class TranscriptionQueue(QObject):
 
         The transcriber overwrote the .json with just its output, so the
         name/notes/etc. must come from the snapshot captured at enqueue time
-        (reading the .json here would only recover the clobbered values).
+        (reading the .json here would only recover the clobbered values). The
+        in-memory snapshot is used first, falling back to the on-disk copy for
+        jobs re-attached after a crash.
         """
-        json_path = Path(job.audio_path).with_suffix(".json")
-        if json_path.exists() and job.gui_snapshot:
+        audio_path = Path(job.audio_path)
+        json_path = audio_path.with_suffix(".json")
+        snapshot = job.gui_snapshot or json_store.read_gui_snapshot(audio_path)
+        if json_path.exists() and snapshot:
             try:
-                json_store.enrich_post_transcription(json_path, job.gui_snapshot)
+                json_store.enrich_post_transcription(json_path, snapshot)
             except Exception:
                 pass
 
+        self._clear_snapshot(job)
         self.job_done.emit(job.job_id)
+
+    def _clear_snapshot(self, job: QueuedJob) -> None:
+        job.gui_snapshot = None
+        if job.audio_path:
+            json_store.clear_gui_snapshot(Path(job.audio_path))

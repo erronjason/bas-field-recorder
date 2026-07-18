@@ -95,6 +95,78 @@ def enrich_post_transcription(json_path: Path, saved_gui_fields: dict) -> None:
     _write(json_path, data)
 
 
+# ---------------------------------------------------------------------------
+# Crash-fallback snapshot of GUI-owned fields
+#
+# The transcriber overwrites a record's .json with just its output. The queue
+# normally restores name/notes/etc. from an in-memory snapshot, but that is
+# lost if the app crashes mid-transcription. These helpers mirror the snapshot
+# to a file in tmp/ (never records_dir/, so it is not mistaken for a record)
+# so the fields survive a crash and can be restored on restart.
+# ---------------------------------------------------------------------------
+
+def gui_snapshot_path(audio_path: Path) -> Path:
+    from . import user_data
+    return user_data.tmp_dir() / f"{audio_path.stem}.gui.json"
+
+
+def write_gui_snapshot(audio_path: Path, snapshot: dict) -> None:
+    if not snapshot:
+        return
+    try:
+        _write(gui_snapshot_path(audio_path), snapshot)
+    except OSError as e:
+        log.error("Could not write GUI snapshot for %s: %s", audio_path.name, e)
+
+
+def read_gui_snapshot(audio_path: Path) -> dict:
+    return load(gui_snapshot_path(audio_path))
+
+
+def clear_gui_snapshot(audio_path: Path) -> None:
+    try:
+        gui_snapshot_path(audio_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def reconcile_gui_snapshots() -> None:
+    """Restore name/notes from crash-fallback snapshots left by an interrupted
+    transcription, then remove the snapshot files.
+
+    Called once at startup. Only records the transcriber already overwrote
+    (server output present but GUI fields gone) are restored here; snapshots
+    for records that still look like an untouched stub are left in place so a
+    job that is still queued/running can restore them via the queue's
+    re-attach path.
+    """
+    from . import user_data
+    for snap_path in user_data.tmp_dir().glob("*.gui.json"):
+        snapshot = load(snap_path)
+        stem = snap_path.name[: -len(".gui.json")]
+        json_path = user_data.records_dir() / f"{stem}.json"
+
+        if not snapshot or not json_path.exists():
+            # Empty snapshot, or the record was discarded/deleted — drop it.
+            snap_path.unlink(missing_ok=True)
+            continue
+
+        data = load(json_path)
+        # The server's overwrite drops record_id (and the other GUI fields); a
+        # stub or an already-restored record still has it. That is the reliable
+        # signal — the stub also carries an (empty) "segments" key, so segment
+        # presence alone can't distinguish them.
+        if "record_id" not in data:
+            # Server overwrote the stub before we could restore — do it now.
+            enrich_post_transcription(json_path, snapshot)
+            snap_path.unlink(missing_ok=True)
+        elif data.get("segments"):
+            # Transcription finished and fields already restored — snapshot stale.
+            snap_path.unlink(missing_ok=True)
+        # else: pristine stub — a job may still be queued/running; leave the
+        # snapshot so the queue's re-attach path can restore it on completion.
+
+
 def migrate_existing_records() -> None:
     """Backfill record_id and duration_seconds on pre-Revision-1 records."""
     from . import user_data

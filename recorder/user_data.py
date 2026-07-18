@@ -62,6 +62,11 @@ def settings_path() -> Path:
     return instrument_dir() / "settings.json"
 
 
+def onboarding_marker_path() -> Path:
+    """Marker written once the first-run help has been shown."""
+    return instrument_dir() / ".onboarding_shown"
+
+
 def bureau_settings_path() -> Path:
     return bureau_root() / "settings.json"
 

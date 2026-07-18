@@ -38,8 +38,8 @@ _WM_QUIT = 0x0012
 ACTIONS = ("start_stop", "pause_resume", "notes")
 DEFAULT_HOTKEYS: dict[str, str] = {
     "start_stop": "Ctrl+Shift+R",
-    "pause_resume": "Ctrl+Shift+P",
-    "notes": "Ctrl+Shift+N",
+    "pause_resume": "Ctrl+Shift+Y",
+    "notes": "Ctrl+Shift+T",
 }
 
 

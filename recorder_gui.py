@@ -81,6 +81,9 @@ def main() -> None:
             msecs=6000,
         )
 
+    # ── First-run usage help (after UI + settings opener are wired) ────
+    recordings_window.maybe_show_onboarding()
+
     sys.exit(app.exec())
 
 

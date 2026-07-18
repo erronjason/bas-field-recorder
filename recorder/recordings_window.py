@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import json_store
+from . import json_store, user_data
 from .recording_detail import RecordingDetail
 from .recording_list import RecordingList
 from .settings import Settings
@@ -109,6 +109,13 @@ class RecordingsWindow(QMainWindow):
         self._settings_btn.clicked.connect(self._on_open_settings)
         header_layout.addWidget(self._settings_btn)
 
+        self._help_btn = QPushButton("?")
+        self._help_btn.setProperty("role", "icon-btn")
+        self._help_btn.setFixedSize(28, 28)
+        self._help_btn.setToolTip("How to use Field Recorder")
+        self._help_btn.clicked.connect(self._show_help)
+        header_layout.addWidget(self._help_btn)
+
         rule = QFrame()
         rule.setFrameShape(QFrame.Shape.HLine)
         rule.setFixedHeight(1)
@@ -189,6 +196,28 @@ class RecordingsWindow(QMainWindow):
 
     def run_initial_sweep(self) -> None:
         QTimer.singleShot(0, self._run_sweep)
+
+    def _show_help(self) -> None:
+        """Show the usage guide, reflecting the current hotkey bindings."""
+        from .help_dialog import HelpDialog
+        s = Settings.load()
+        hotkeys = {
+            "start_stop": s.hotkey_start_stop,
+            "notes": s.hotkey_notes,
+            "pause_resume": s.hotkey_pause_resume,
+        }
+        HelpDialog(hotkeys, self._open_settings_fn, parent=self).exec()
+
+    def maybe_show_onboarding(self) -> None:
+        """Show the usage guide once, on first run."""
+        marker = user_data.onboarding_marker_path()
+        if marker.exists():
+            return
+        self._show_help()
+        try:
+            marker.write_text("shown", encoding="utf-8")
+        except OSError:
+            pass
 
     def _refresh_queue_indicator(self) -> None:
         """Reflect how many records are queued or transcribing. Hidden at zero."""

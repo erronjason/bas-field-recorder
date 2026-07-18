@@ -32,6 +32,17 @@ class QueuedJob:
     display_name: str
     status: str = "queued"   # queued | running | done | error | cancelled
     error: Optional[str] = None
+    # GUI-managed fields captured from the stub before the transcriber
+    # overwrites the JSON; restored once the job finishes.
+    gui_snapshot: Optional[dict] = None
+
+
+# Fields owned by the GUI that the transcriber must not clobber.
+_GUI_FIELDS = (
+    "record_id", "format_revision", "display_name", "created_at",
+    "source", "duration_seconds", "participants",
+    "speaker_names", "notes", "retain",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +88,10 @@ class TranscriptionQueue(QObject):
         json_path = audio_path.with_suffix(".json")
         stub = json_store.load(json_path) if json_path.exists() else {}
 
+        # Snapshot the GUI-owned fields now, while the stub still holds the
+        # user's name/notes — the transcriber will overwrite the JSON.
+        gui_snapshot = {k: stub[k] for k in _GUI_FIELDS if k in stub}
+
         body = {
             "audio_path": str(audio_path),
             "workspace_path": str(user_data.records_dir()),
@@ -102,6 +117,7 @@ class TranscriptionQueue(QObject):
             audio_path=str(audio_path),
             display_name=body["display_name"],
             status="queued",
+            gui_snapshot=gui_snapshot,
         )
         self.queue_updated.emit()
         return job_id
@@ -198,23 +214,16 @@ class TranscriptionQueue(QObject):
             self.queue_updated.emit()
 
     def _on_job_done(self, job: QueuedJob) -> None:
-        """Merge transcriber output into the JSON stub, preserving GUI fields."""
-        audio_path = Path(job.audio_path)
-        json_path = audio_path.with_suffix(".json")
-        if json_path.exists():
+        """Merge transcriber output into the JSON stub, preserving GUI fields.
+
+        The transcriber overwrote the .json with just its output, so the
+        name/notes/etc. must come from the snapshot captured at enqueue time
+        (reading the .json here would only recover the clobbered values).
+        """
+        json_path = Path(job.audio_path).with_suffix(".json")
+        if json_path.exists() and job.gui_snapshot:
             try:
-                stub_before = json_store.load(json_path)
-                saved_gui_fields = {
-                    k: stub_before.get(k)
-                    for k in (
-                        "record_id", "format_revision", "display_name", "created_at",
-                        "source", "duration_seconds", "participants",
-                        "speaker_names", "notes", "retain",
-                    )
-                    if k in stub_before
-                }
-                # The server wrote a fresh .json; enrich it with GUI fields
-                json_store.enrich_post_transcription(json_path, saved_gui_fields)
+                json_store.enrich_post_transcription(json_path, job.gui_snapshot)
             except Exception:
                 pass
 

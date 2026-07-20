@@ -134,7 +134,7 @@ class RecordingDetail(QWidget):
         self._record_id: str = ""
         self._data: dict = {}
         self._json_path: Optional[Path] = None
-        self._flac_path: Optional[Path] = None
+        self._audio_path: Optional[Path] = None
         self._transcript_mode: str = "timestamps"
         self._notes_dirty: bool = False
         self._preserve_session: bool = False
@@ -269,7 +269,7 @@ class RecordingDetail(QWidget):
             self._record_id = ""
             self._data = {}
             self._json_path = None
-            self._flac_path = None
+            self._audio_path = None
             self._show_empty()
             return
 
@@ -296,7 +296,7 @@ class RecordingDetail(QWidget):
         self._player_bar.release()
         self._record_id = record_id
         self._json_path = json_path
-        self._flac_path = json_path.with_suffix(".flac")
+        self._audio_path = json_store.audio_path_for(json_path)
 
         self._show_content()
         self._start_load(json_path)
@@ -373,8 +373,8 @@ class RecordingDetail(QWidget):
 
         # Player — keep current playback untouched when refreshing in place
         # (the audio file is unchanged by transcription)
-        if not preserve and self._flac_path and self._flac_path.exists():
-            self._player_bar.load(self._flac_path, data.get("duration_seconds"))
+        if not preserve and self._audio_path and self._audio_path.exists():
+            self._player_bar.load(self._audio_path, data.get("duration_seconds"))
 
         # Transcript
         self._transcript_mode = "timestamps"
@@ -406,8 +406,8 @@ class RecordingDetail(QWidget):
         if not self._json_path:
             return
         json_store.update_fields(self._json_path, **fields)
-        if self._flac_path:
-            json_store.update_gui_snapshot(self._flac_path, **fields)
+        if self._audio_path:
+            json_store.update_gui_snapshot(self._audio_path, **fields)
 
     @Slot()
     def _on_name_edited(self) -> None:
@@ -443,7 +443,7 @@ class RecordingDetail(QWidget):
             self._transcript.setPlainText(transcript)
 
     def _on_retranscribe(self) -> None:
-        if not self._json_path or not self._flac_path:
+        if not self._json_path or not self._audio_path:
             return
 
         reply = QMessageBox.question(
@@ -451,7 +451,7 @@ class RecordingDetail(QWidget):
             "Retranscribe",
             "Retranscribing may reassign speaker labels. Identities will need to be "
             "confirmed after the new transcript is ready.\n\n"
-            f"Audio: {self._flac_path.name}\n\nContinue?",
+            f"Audio: {self._audio_path.name}\n\nContinue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -470,21 +470,21 @@ class RecordingDetail(QWidget):
         # Reload settings at enqueue time (not at window-open time)
         from .settings import Settings
         settings = Settings.load()
-        self._queue.enqueue(self._flac_path, settings)
+        self._queue.enqueue(self._audio_path, settings)
 
     def _on_reveal(self) -> None:
-        if not self._flac_path:
+        if not self._audio_path:
             return
-        _reveal_path(self._flac_path)
+        _reveal_path(self._audio_path)
 
     def _on_delete(self) -> None:
-        if not self._json_path or not self._flac_path:
+        if not self._json_path:
             return
         txt_path = self._json_path.with_suffix(".txt")
-        files = "\n".join(
-            str(p.name) for p in [self._flac_path, self._json_path, txt_path]
-            if p.exists()
-        )
+        # The audio may be absent (missing or already removed); the record is
+        # still deletable — we just have fewer files to remove.
+        candidates = [p for p in (self._audio_path, self._json_path, txt_path) if p]
+        files = "\n".join(str(p.name) for p in candidates if p.exists())
         reply = QMessageBox.question(
             self,
             "Delete record",
@@ -498,15 +498,15 @@ class RecordingDetail(QWidget):
         rid = self._record_id
         self._player_bar.release()
 
-        # Delete FLAC first — if this fails, abort (record remains coherent)
+        # Delete the audio first — if this fails, abort (record remains coherent)
         try:
-            if self._flac_path.exists():
-                self._flac_path.unlink()
+            if self._audio_path and self._audio_path.exists():
+                self._audio_path.unlink()
         except OSError as e:
             QMessageBox.critical(
                 self,
                 "Delete failed",
-                f"Could not delete {self._flac_path.name}.\n{e}\n\nNo files were removed.",
+                f"Could not delete {self._audio_path.name}.\n{e}\n\nNo files were removed.",
             )
             return
 
@@ -519,7 +519,7 @@ class RecordingDetail(QWidget):
         self._record_id = ""
         self._data = {}
         self._json_path = None
-        self._flac_path = None
+        self._audio_path = None
         self._show_empty()
         self.record_deleted.emit(rid)
 

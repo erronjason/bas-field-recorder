@@ -129,6 +129,10 @@ class SystemTrayApp(QSystemTrayIcon):
 
         menu.addSeparator()
 
+        act_import = QAction("Import audio…", menu)
+        act_import.triggered.connect(self._import_audio)
+        menu.addAction(act_import)
+
         act_workspace = QAction("Open records", menu)
         act_workspace.triggered.connect(self._open_records)
         menu.addAction(act_workspace)
@@ -228,6 +232,14 @@ class SystemTrayApp(QSystemTrayIcon):
         else:
             self._queue.pause_queue()
         self._refresh()
+
+    def _import_audio(self) -> None:
+        """Import existing audio files as records (delegates to the Records window)."""
+        if self._recordings_window is None:
+            self._alert("Open Records to import audio.")
+            return
+        self._open_records()
+        self._recordings_window.import_audio()
 
     def _open_records(self) -> None:
         if self._recordings_window is not None:
@@ -358,7 +370,13 @@ class SystemTrayApp(QSystemTrayIcon):
         self._state = State.IDLE
         self._refresh()
 
-        # Auto-transcribe if enabled, server ready, and we have a valid file
+        self._transcribe_if_enabled(audio_path)
+
+    def _transcribe_if_enabled(self, audio_path: Optional[Path]) -> None:
+        """Queue transcription when enabled, the service is up, and the file exists.
+
+        Shared by capture and import so both honour the same settings and consent.
+        """
         if (
             audio_path
             and audio_path.exists()

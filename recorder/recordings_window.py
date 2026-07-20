@@ -5,13 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
@@ -46,6 +48,9 @@ class RecordingsWindow(QMainWindow):
         self._server = server
         self._queue = queue
         self._open_settings_fn: Optional[Callable] = None
+        self._transcribe_fn: Optional[Callable] = None
+        self._import_worker = None
+        self._import_errors: list[str] = []
 
         self.setWindowTitle("Field Recorder — Records")
         self.setMinimumSize(800, 500)
@@ -76,11 +81,14 @@ class RecordingsWindow(QMainWindow):
         self._btn_record = QPushButton("Record")
         self._btn_pause = QPushButton("Pause")
         self._btn_stop = QPushButton("Stop")
-        for btn in (self._btn_record, self._btn_pause, self._btn_stop):
+        self._btn_import = QPushButton("Import")
+        for btn in (self._btn_record, self._btn_pause, self._btn_stop, self._btn_import):
             btn.setProperty("role", "header-ctrl")
             header_layout.addWidget(btn)
         self._btn_pause.hide()
         self._btn_stop.hide()
+        self._btn_import.setToolTip("Import an existing audio file as a record")
+        self._btn_import.clicked.connect(self.import_audio)
 
         header_layout.addStretch()
 
@@ -153,6 +161,50 @@ class RecordingsWindow(QMainWindow):
 
     def set_settings_opener(self, fn: Callable) -> None:
         self._open_settings_fn = fn
+
+    def set_transcribe_handler(self, fn: Callable) -> None:
+        """Supply the consent-gated enqueue used after a capture (tray owns it)."""
+        self._transcribe_fn = fn
+
+    def import_audio(self) -> None:
+        """Pick existing audio files and bring them into the records store."""
+        from .audio_import import FILE_DIALOG_FILTER, ImportWorker
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Import audio", "", FILE_DIALOG_FILTER
+        )
+        if not paths:
+            return
+
+        self._import_errors = []
+        self._btn_import.setEnabled(False)
+        self._import_worker = ImportWorker([Path(p) for p in paths], parent=self)
+        self._import_worker.imported.connect(self._on_imported)
+        self._import_worker.import_error.connect(self._on_import_error)
+        self._import_worker.finished_all.connect(self._on_import_finished)
+        self._import_worker.start()
+
+    @Slot(Path)
+    def _on_imported(self, audio_path: Path) -> None:
+        self._list._rebuild()
+        # Same consent-gated path a capture takes; no-op if disabled or offline.
+        if self._transcribe_fn:
+            self._transcribe_fn(audio_path)
+
+    @Slot(str, str)
+    def _on_import_error(self, filename: str, message: str) -> None:
+        self._import_errors.append(f"{filename}: {message}")
+
+    @Slot()
+    def _on_import_finished(self) -> None:
+        self._btn_import.setEnabled(True)
+        self._list._rebuild()
+        if self._import_errors:
+            QMessageBox.warning(
+                self,
+                "Import incomplete",
+                "These files were not imported:\n\n" + "\n".join(self._import_errors),
+            )
+            self._import_errors = []
 
     def set_recording_controls(
         self,

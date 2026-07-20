@@ -64,6 +64,7 @@ def main() -> None:
     # ── Tray app ──────────────────────────────────────────────────────
     tray = SystemTrayApp(server, queue, hotkeys, recordings_window=recordings_window)
     recordings_window.set_settings_opener(tray._open_settings)
+    recordings_window.set_transcribe_handler(tray._transcribe_if_enabled)
     recordings_window.set_recording_controls(
         tray._start_recording,
         tray._toggle_pause,

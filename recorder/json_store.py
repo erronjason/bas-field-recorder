@@ -3,8 +3,38 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Audio containers a record may hold. Captures are always .flac; imported
+# records keep their original format (see docs/audio_import_spec.md).
+AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".webm")
+
+
+def audio_path_for(json_path: Path, data: Optional[dict] = None) -> Optional[Path]:
+    """Resolve a record's audio file.
+
+    Prefers the `audio_file` field, which appears in two shapes: create_stub()
+    writes a bare filename, while the transcriber overwrites it with an absolute
+    path. Both are resolved by basename against the record's own directory, so a
+    record stays valid if the store moves. Falls back to a sibling with a known
+    audio extension. Returns None when no audio file is present.
+    """
+    if data is None:
+        data = load(json_path)
+
+    name = (data or {}).get("audio_file") or ""
+    if name:
+        candidate = json_path.parent / Path(name).name
+        if candidate.exists():
+            return candidate
+
+    for ext in AUDIO_EXTENSIONS:
+        candidate = json_path.with_suffix(ext)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def create_stub(wav_path: Path, display_name: str, notes: str) -> Path:
@@ -200,14 +230,14 @@ def migrate_existing_records() -> None:
             data["record_id"] = str(uuid.uuid4())
             changed = True
         if data.get("duration_seconds") is None:
-            flac = json_path.with_suffix(".flac")
-            if flac.exists():
+            audio = audio_path_for(json_path, data)
+            if audio is not None:
                 try:
                     import soundfile as sf
-                    data["duration_seconds"] = sf.info(str(flac)).duration
+                    data["duration_seconds"] = sf.info(str(audio)).duration
                     changed = True
                 except Exception:
-                    pass
+                    pass  # e.g. mp3/m4a — libsndfile can't read it; leave null
         if changed:
             _write(json_path, data)
 
@@ -234,11 +264,11 @@ def run_retention_sweep(auto_delete_days: int, exclude_record_ids: set) -> None:
         except (ValueError, TypeError):
             continue
         if created < cutoff:
-            flac = json_path.with_suffix(".flac")
+            audio = audio_path_for(json_path, data)
             txt  = json_path.with_suffix(".txt")
             try:
-                if flac.exists():
-                    flac.unlink()
+                if audio is not None:
+                    audio.unlink(missing_ok=True)
                 json_path.unlink(missing_ok=True)
                 txt.unlink(missing_ok=True)
                 with open(log_path, "a", encoding="utf-8") as f:

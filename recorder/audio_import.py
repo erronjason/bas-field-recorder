@@ -3,6 +3,9 @@
 An imported record is the same three siblings as a captured one
 (<stem>.<ext> + <stem>.json + <stem>.txt), except the audio keeps its original
 format rather than being transcoded. See docs/audio_import_spec.md.
+
+Deliberately free of Qt so the MCP server can import without a GUI toolkit;
+the threaded wrapper lives in recorder.import_worker.
 """
 
 from __future__ import annotations
@@ -10,8 +13,6 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
-
-from PySide6.QtCore import QThread, Signal
 
 from . import json_store, user_data
 
@@ -88,27 +89,3 @@ def import_one(source: Path) -> Path:
     json_store.update_fields(json_path, source=source_block)
 
     return dest
-
-
-class ImportWorker(QThread):
-    """Copies audio files into the records store off the UI thread.
-
-    Emits imported(Path) per successful file and import_error(str, str) as
-    (filename, message) per failure, then finished_all().
-    """
-
-    imported = Signal(Path)
-    import_error = Signal(str, str)
-    finished_all = Signal()
-
-    def __init__(self, sources: list[Path], parent=None) -> None:
-        super().__init__(parent)
-        self._sources = list(sources)
-
-    def run(self) -> None:
-        for source in self._sources:
-            try:
-                self.imported.emit(import_one(source))
-            except Exception as exc:
-                self.import_error.emit(source.name, str(exc))
-        self.finished_all.emit()

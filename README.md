@@ -77,9 +77,10 @@ Open Settings with the **⚙** gear in the Records window.
 
 | Component | Description |
 |---|---|
-| `recorder_gui.py` | Tray application - capture, naming, notes, transcription queue |
+| `recorder_gui.py` | Tray application - capture, import, naming, notes, transcription queue |
 | `transcription_server.py` | Transcription service - managed by the GUI, also launchable standalone |
 | `transcribe.py` | CLI transcription script - direct use without the GUI |
+| `bas_records_mcp.py` | MCP server over the records store - search, fetch, import, annotate |
 
 The GUI manages the transcription service as a child process. The service runs in a self-contained embedded Python runtime, installed on first launch.
 
@@ -241,6 +242,46 @@ python transcribe.py <audio_file> [options]
 Use `--model small` if the GPU runs out of memory on `medium`.
 
 **Supported formats:** `wav` `flac` `m4a` `mp3` `mp4` `ogg` `webm`
+
+---
+
+## MCP server
+
+`bas_records_mcp.py` exposes the records store to MCP-capable clients - search records, read transcripts, import audio, annotate. It serves records produced by any Bureau instrument, not only Field Recorder.
+
+It is a local process speaking over **stdio**. It opens no port and makes no network connection; recordings stay on the machine.
+
+**Register it** with your MCP client. For Claude for Desktop, in `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "bas-records": {
+      "command": "python",
+      "args": ["C:\\ABSOLUTE\\PATH\\TO\\bas-field-recorder\\bas_records_mcp.py"]
+    }
+  }
+}
+```
+
+Restart the client afterward. Requires `pip install mcp`; the GUI need not be running.
+
+### Tools
+
+| Tool | Purpose |
+|---|---|
+| `search_records` | Filter by name, transcript text, date range, or speaker. Returns summaries |
+| `get_record` | One full record, including transcript segments |
+| `get_transcript` | Transcript text - `timestamps` or `reading` |
+| `list_participants` | Everyone across the store, with record counts |
+| `import_audio` | Copy an audio file into the store as a new record |
+| `set_notes` | Replace a record's notes |
+| `rename_record` | Set a record's display name |
+| `set_retention_hold` | Hold a record against the retention policy, or release it |
+
+Records are also available as resources at `bas://records/{record_id}`.
+
+**There is no delete tool.** Deletion is irreversible; the retention policy and the Records window already provide it under direct operator control. The annotate tools write only operator-owned fields - never transcript segments, `record_id`, or the audio file.
 
 ---
 

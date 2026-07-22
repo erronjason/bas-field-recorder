@@ -15,3 +15,6 @@ pyinstaller
 # Phase 2 — transcription server (backend venv) + GUI HTTP client
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
+
+# Phase 5 — MCP server over the records store (bas_records_mcp.py)
+mcp>=1.28

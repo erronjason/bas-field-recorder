@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from . import json_store, user_data
 from .player_bar import PlayerBar
 from .speaker_dialog import SpeakerDialog
+from .transcript import build_transcript
 
 if TYPE_CHECKING:
     from .transcription_queue import TranscriptionQueue
@@ -49,58 +50,9 @@ class _LoadWorker(QObject):
         self.finished.emit(data, transcript)
 
 
-def _speaker_label(raw: str, names: dict[str, str], index_map: dict[str, int]) -> str:
-    name = names.get(raw, "").strip()
-    if name:
-        return name
-    idx = index_map.get(raw, 0)
-    return f"Speaker {idx + 1}"
-
-
-def _build_transcript(data: dict, mode: str) -> str:
-    segments = data.get("segments") or []
-    names = data.get("speaker_names") or {}
-    if not segments:
-        return ""
-
-    # Build stable speaker → index map (sort by first appearance)
-    seen: list[str] = []
-    for seg in segments:
-        sp = seg.get("speaker", "")
-        if sp and sp not in seen:
-            seen.append(sp)
-    index_map = {sp: i for i, sp in enumerate(seen)}
-
-    if mode == "timestamps":
-        lines = []
-        for seg in segments:
-            start = seg.get("start", 0.0)
-            sp = seg.get("speaker", "")
-            text = seg.get("text", "").strip()
-            m, s = divmod(int(start), 60)
-            h, m = divmod(m, 60)
-            stamp = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-            label = _speaker_label(sp, names, index_map)
-            lines.append(f"{stamp}  {label:<20}  {text}")
-        return "\n".join(lines)
-
-    else:  # reading mode — merge consecutive same-speaker blocks
-        blocks: list[tuple[str, list[str]]] = []
-        for seg in segments:
-            sp = seg.get("speaker", "")
-            text = seg.get("text", "").strip()
-            if not text:
-                continue
-            if blocks and blocks[-1][0] == sp:
-                blocks[-1][1].append(text)
-            else:
-                blocks.append((sp, [text]))
-
-        parts = []
-        for sp, texts in blocks:
-            label = _speaker_label(sp, names, index_map)
-            parts.append(f"{label.upper()}\n{''.join(texts)}")
-        return "\n\n".join(parts)
+# Transcript rendering lives in recorder.transcript so the MCP server renders
+# identically without pulling in Qt.
+_build_transcript = build_transcript
 
 
 # ---------------------------------------------------------------------------

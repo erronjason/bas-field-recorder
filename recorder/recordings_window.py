@@ -168,7 +168,8 @@ class RecordingsWindow(QMainWindow):
 
     def import_audio(self) -> None:
         """Pick existing audio files and bring them into the records store."""
-        from .audio_import import FILE_DIALOG_FILTER, ImportWorker
+        from .audio_import import FILE_DIALOG_FILTER
+        from .import_worker import ImportWorker
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Import audio", "", FILE_DIALOG_FILTER
         )

@@ -283,6 +283,18 @@ Records are also available as resources at `bas://records/{record_id}`.
 
 **There is no delete tool.** Deletion is irreversible; the retention policy and the Records window already provide it under direct operator control. The annotate tools write only operator-owned fields - never transcript segments, `record_id`, or the audio file.
 
+### Prompts
+
+Pre-written entry points for common workflows, for clients that surface MCP prompts (e.g. as slash commands):
+
+| Prompt | Arguments | Does |
+|---|---|---|
+| `summarize_record` | `record_id` | Key points, decisions, and action items for one record |
+| `prep_for_followup` | `speaker` | Open items and last-discussed topics with someone, from their record history |
+| `weekly_digest` | `from_date` (optional) | What was recorded in the last 7 days, or since a given date |
+
+A prompt is instructions, not data - each one directs the assistant to call the tools above and report only what they return. None of them are permitted to invent facts about a record.
+
 ---
 
 ## Record Format

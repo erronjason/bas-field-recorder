@@ -326,6 +326,84 @@ def record_resource(record_id: str) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Prompts — pre-written entry points for common workflows
+# ---------------------------------------------------------------------------
+#
+# A prompt is a template of instructions, not the data itself — it tells the
+# assistant which tools to call and how to shape the result. It must not
+# invent facts about a record; everything it reports comes from a tool call.
+
+@mcp.prompt(title="Summarize a record")
+def summarize_record(record_id: str) -> str:
+    """Summarize one record: key points, decisions, and action items.
+
+    Args:
+        record_id: The record's stable UUID, from search_records.
+    """
+    return (
+        f"Summarize the record with record_id {record_id!r}.\n\n"
+        "Call get_record to confirm it exists and read its name, date, and "
+        "notes, then get_transcript (mode=\"reading\") for the content. If the "
+        "transcript is empty, say the record has not been transcribed yet and "
+        "stop — do not guess at its content.\n\n"
+        "Structure the summary as:\n"
+        "- One-line description of what the record is\n"
+        "- Key points, in the order they came up\n"
+        "- Decisions made, if any\n"
+        "- Action items, with who owns each one if the transcript says so\n\n"
+        "Use only what is in the record and its transcript. Do not invent "
+        "names, dates, or commitments that are not there."
+    )
+
+
+@mcp.prompt(title="Prep for a follow-up")
+def prep_for_followup(speaker: str) -> str:
+    """Prepare talking points for a follow-up with someone, from past records.
+
+    Args:
+        speaker: The person's name, as it appears in participants or speaker_names.
+    """
+    return (
+        f"Prepare me for a follow-up conversation with {speaker!r}.\n\n"
+        f"Call search_records with speaker={speaker!r} to find every record "
+        "they appear in, newest first. For the two or three most recent "
+        "transcribed ones, pull the transcript (mode=\"reading\") and notes.\n\n"
+        "Report:\n"
+        "- What we last discussed with them, and when\n"
+        "- Anything left open — a question, a promise, a next step — that "
+        "was not resolved by a later record\n"
+        "- Anything they said that a follow-up should reference by name\n\n"
+        f"If search_records finds no records for {speaker!r}, say so plainly "
+        "rather than filling the gap with guesses."
+    )
+
+
+@mcp.prompt(title="Weekly digest")
+def weekly_digest(from_date: str = "") -> str:
+    """Summarize everything recorded in the last week (or since a given date).
+
+    Args:
+        from_date: ISO date to digest from. Leave blank for the last 7 days.
+    """
+    window = (
+        f"created from {from_date} to today"
+        if from_date
+        else "created in the last 7 days (work out today's date and go back 7 days)"
+    )
+    return (
+        f"Give me a digest of everything recorded {window}.\n\n"
+        "Call search_records with the appropriate from_date (and to_date if "
+        "relevant) to get the list. For each record, note its name, date, "
+        "and — if transcribed — a one-line summary drawn from get_transcript. "
+        "Records that are not yet transcribed should be listed by name and "
+        "date only, marked as pending.\n\n"
+        "Group by day if there are several records; otherwise a flat list is "
+        "fine. If nothing was recorded in the window, say that — do not "
+        "pad the digest with older records to make it look fuller."
+    )
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 
